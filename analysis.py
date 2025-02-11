@@ -1,12 +1,14 @@
 import dash
 from dash import dcc, html, dash_table
 import pandas as pd
-from dash.dependencies import Input, Output
+from dash.dependencies import Input, Output, State
 from queries.store_performance import fetch_sales_data
 from queries.category_performance import fetch_subcategory_data
 from queries.brand_performance import fetch_brand_data
 from queries.product_performance import fetch_product_data
 from queries.common import get_last_date
+from datetime import datetime
+
 
 app = dash.Dash(__name__)
 app.config.suppress_callback_exceptions = True
@@ -41,6 +43,7 @@ HEADER_STYLE = {
     'textAlign': 'center'
 }
 
+
 app.layout = html.Div([
     # Main container with background color
     html.Div([
@@ -53,6 +56,11 @@ app.layout = html.Div([
                        'fontWeight': 'bold',
                        'marginBottom': '10px'
                    }),
+            html.P(id="last-date-display",  # Set an ID for dynamic updates
+                  style={
+                      'color': '#7f8c8d',
+                      'fontSize': '16px'
+                  }),
         ], style=HEADER_STYLE),
 
         # Hidden date picker
@@ -88,14 +96,14 @@ app.layout = html.Div([
                             {"name": "Sales", "id": "Sales"},
                             {"name": "Average Order Value", "id": "Average Order Value"}
                         ],
-                        style_table={'width': '100%', 'overflowX': 'auto'},  # Ensures table remains responsive
+                        style_table={'width': '100%', 'overflowX': 'auto'},
                         style_cell={
                             'textAlign': 'center',
-                            'padding': '6px',  # Decreased row height
+                            'padding': '6px',
                             'fontSize': '14px'
                         },
                         style_header={
-                            'backgroundColor': '#fff3cd',  # Light yellow header
+                            'backgroundColor': '#fff3cd',
                             'fontWeight': 'bold',
                             'borderBottom': '2px solid #dee2e6'
                         },
@@ -433,7 +441,6 @@ html.Div([
     ])
 ])
 
-# Remove one of the duplicate callbacks and the sales-table reference
 @app.callback(
     [Output('store-table-left', 'data'),
      Output('store-table-right', 'data'),
@@ -442,43 +449,51 @@ html.Div([
      Output('brand-table-left', 'data'),
      Output('brand-table-right', 'data'),
      Output('product-table-left', 'data'),
-     Output('product-table-right', 'data')],
+     Output('product-table-right', 'data'),
+     Output('last-date-display', 'children')],
+    
     [Input('date-picker', 'start_date'), 
      Input('date-picker', 'end_date')]
 )
+
+
 def update_tables(start_date, end_date):
     try:
-        # Convert string dates to datetime if they're strings
+        # Convert string dates to datetime if necessary
         if isinstance(start_date, str):
             start_date = pd.to_datetime(start_date)
         if isinstance(end_date, str):
             end_date = pd.to_datetime(end_date)
             
-        # Fetch store performance data
+        # Fetch sales data
         store_data = fetch_sales_data(start_date, end_date)
-        
         mid_index_store = len(store_data) // 2
         store_left = store_data.iloc[:mid_index_store]   
         store_right = store_data.iloc[mid_index_store:]
 
-        # Fetch other data
         category_data = fetch_subcategory_data(start_date, end_date)
-
         mid_index_category = len(category_data) // 2
         category_left = category_data.iloc[:mid_index_category]   
         category_right = category_data.iloc[mid_index_category:]
 
         brand_data = fetch_brand_data(start_date, end_date)
-
         mid_index_brand = len(brand_data) // 2
         brand_left = brand_data.iloc[:mid_index_brand]
         brand_right = brand_data.iloc[mid_index_brand:]
 
         product_data = fetch_product_data(start_date, end_date)
-
         mid_index_product = len(product_data) // 2
         product_left = product_data.iloc[:mid_index_product]
         product_right = product_data.iloc[mid_index_product:]
+
+        # Get last date for display
+        last_date = get_last_date()
+        formatted_date = last_date.strftime('%B %d, %Y')
+        date_display = html.P([
+                                "📅 Comparison to the 1 week average with : ",
+                                html.Span(formatted_date, style={'fontWeight': 'bold', 'fontSize': '18px', 'color': '#e74c3c'})
+                            ], style={'fontSize': '16px', 'color': '#2c3e50'})
+
 
         return (
             store_left.to_dict('records'),
@@ -488,8 +503,10 @@ def update_tables(start_date, end_date):
             brand_left.to_dict('records'),
             brand_right.to_dict('records'),
             product_left.to_dict('records'),
-            product_right.to_dict('records')
+            product_right.to_dict('records'),
+            date_display
         )
+
 
     except Exception as e:
         print(f"Error in update_tables: {str(e)}")
