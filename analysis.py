@@ -6,6 +6,7 @@ from queries.store_performance import fetch_sales_data
 from queries.category_performance import fetch_subcategory_data
 from queries.brand_performance import fetch_brand_data
 from queries.product_performance import fetch_product_data
+from queries.store_performance import fetch_total_sales
 from queries.common import get_last_date
 from datetime import datetime
 
@@ -44,6 +45,7 @@ HEADER_STYLE = {
 }
 
 
+
 app.layout = html.Div([
     # Main container with background color
     html.Div([
@@ -56,7 +58,7 @@ app.layout = html.Div([
                        'fontWeight': 'bold',
                        'marginBottom': '10px'
                    }),
-            html.P(id="last-date-display",  # Set an ID for dynamic updates
+            html.P(id="last-date-display", 
                   style={
                       'color': '#7f8c8d',
                       'fontSize': '16px'
@@ -72,6 +74,17 @@ app.layout = html.Div([
                 display_format='YYYY-MM-DD'
             )
         ], style={'display': 'none'}),
+
+        # Total Sales Metric Section
+        html.Div([
+            html.H4(id="total-sales-display",
+                style={
+                    'color': '#27ae60',
+                    'fontSize': '30px',
+                    'fontWeight': 'bold',
+                    'textAlign': 'center'
+                }),
+        ], style={'marginBottom': '4px'}),
 
         # Store Performance Section
         html.Div([
@@ -134,7 +147,7 @@ app.layout = html.Div([
                             {"name": "Sales", "id": "Sales"},
                             {"name": "Average Order Value", "id": "Average Order Value"}
                         ],
-                        style_table={'width': '100%', 'overflowX': 'auto'},  # Ensures table remains responsive
+                        style_table={'width': '100%', 'overflowX': 'auto'}, 
                         style_cell={
                             'textAlign': 'center',
                             'padding': '6px',  # Decreased row height
@@ -166,6 +179,8 @@ app.layout = html.Div([
 
         ], style=CARD_STYLE),
         # Category Performance Section
+        html.Div(style={'height': '700px'}),
+
         html.Div([
             html.H3("Category Performance", 
                 style={
@@ -252,8 +267,9 @@ app.layout = html.Div([
         ], style=CARD_STYLE),
 
 
+        html.Div(style={'height': '150px'}),
 # Brand Performance Section
-html.Div([
+html.Div([  
     html.H3("Brand Performance", 
         style={
             'color': '#2c3e50',
@@ -343,7 +359,7 @@ html.Div([
 ], style=CARD_STYLE),
 
 
-
+html.Div(style={'height': '100px'}),
 # Product Performance Section
 html.Div([
     html.H3("Product Performance", 
@@ -450,7 +466,8 @@ html.Div([
      Output('brand-table-right', 'data'),
      Output('product-table-left', 'data'),
      Output('product-table-right', 'data'),
-     Output('last-date-display', 'children')],
+     Output('last-date-display', 'children'),
+     Output('total-sales-display', 'children')],
     
     [Input('date-picker', 'start_date'), 
      Input('date-picker', 'end_date')]
@@ -490,10 +507,13 @@ def update_tables(start_date, end_date):
         last_date = get_last_date()
         formatted_date = last_date.strftime('%B %d, %Y')
         date_display = html.P([
-                                "📅 Comparison to the 1 week average with : ",
+                                "📅 This report compares the latest available sales data with the average sales from the previous 7 days, Update: ",
                                 html.Span(formatted_date, style={'fontWeight': 'bold', 'fontSize': '18px', 'color': '#e74c3c'})
                             ], style={'fontSize': '16px', 'color': '#2c3e50'})
 
+
+        total_sales = fetch_total_sales()
+        total_sales_display = f"📊 Total Sales: ₹{total_sales:,.2f}" 
 
         return (
             store_left.to_dict('records'),
@@ -504,7 +524,8 @@ def update_tables(start_date, end_date):
             brand_right.to_dict('records'),
             product_left.to_dict('records'),
             product_right.to_dict('records'),
-            date_display
+            date_display,
+            total_sales_display
         )
 
 
@@ -515,4 +536,4 @@ def update_tables(start_date, end_date):
         return [empty_data] * 8
 
 if __name__ == '__main__':
-    app.run_server(debug=True)
+    app.run_server(debug=False, dev_tools_ui=False, dev_tools_props_check=False)
