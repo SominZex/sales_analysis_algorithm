@@ -3,18 +3,46 @@ from connector import get_db_connection
 from queries.trend import get_trend_arrow
 
 
+
 def fetch_total_sales():
-    """Fetch total sales from the store_sales table."""
+    """Fetch total sales for the latest date and calculate average weekly growth percentage."""
     engine = get_db_connection()
-    query = """
+    
+    # Get the latest available date
+    query_last_date = "SELECT MAX(orderDate) AS last_date FROM store_sales"
+    last_date_df = pd.read_sql(query_last_date, engine)
+    last_date = last_date_df['last_date'].iloc[0]
+
+    # Fetch total sales for the last available day
+    query_sales_today = f"""
         SELECT SUM(sales) AS total_sales 
         FROM store_sales 
-        WHERE orderDate = (SELECT MAX(orderDate) FROM store_sales);
+        WHERE orderDate = '{last_date}';
     """
-    df = pd.read_sql(query, engine)
+    sales_today_df = pd.read_sql(query_sales_today, engine)
+    sales_today = sales_today_df['total_sales'].iloc[0] or 0
+
+    # Fetch average total sales from last 7 days (excluding the latest day)
+    query_sales_last_week = f"""
+        SELECT AVG(total_sales) AS avg_weekly_sales FROM (
+            SELECT SUM(sales) AS total_sales FROM store_sales 
+            WHERE orderDate BETWEEN DATE('{last_date}') - INTERVAL 7 DAY AND DATE('{last_date}') - INTERVAL 1 DAY
+            GROUP BY orderDate
+        ) AS weekly_sales;
+    """
+    avg_sales_last_week_df = pd.read_sql(query_sales_last_week, engine)
+    avg_sales_last_week = avg_sales_last_week_df['avg_weekly_sales'].iloc[0] or 0
+
     engine.dispose()
 
-    return df['total_sales'].iloc[0] if not df.empty else 0
+    # Calculate percentage growth
+    if avg_sales_last_week > 0:
+        weekly_growth = ((sales_today - avg_sales_last_week) / avg_sales_last_week) * 100
+    else:
+        weekly_growth = 0  # Prevent division by zero
+
+    return sales_today, round(weekly_growth, 2)
+
 
 def fetch_sales_data(default_start_date=None, default_end_date=None):
     """Fetch store sales data from store_sales table based on selected date range."""

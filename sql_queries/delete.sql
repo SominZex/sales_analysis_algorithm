@@ -1,0 +1,1 @@
+DELETE FROM brand_sales WHERE orderDate BETWEEN '2025-02-05' AND '2025-02-07';

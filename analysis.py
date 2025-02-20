@@ -75,7 +75,7 @@ app.layout = html.Div([
             )
         ], style={'display': 'none'}),
 
-        # Total Sales Metric Section
+        # Total Sales & Weekly Growth Percentage Section
         html.Div([
             html.H4(id="total-sales-display",
                 style={
@@ -84,7 +84,15 @@ app.layout = html.Div([
                     'fontWeight': 'bold',
                     'textAlign': 'center'
                 }),
-        ], style={'marginBottom': '4px'}),
+            html.P(id="weekly-growth-display",  # New element for growth percentage
+                style={
+                    'color': '#2980b9',
+                    'fontSize': '20px',
+                    'fontWeight': 'bold',
+                    'textAlign': 'center'
+                }),
+        ], style={'marginBottom': '10px'}),
+
 
         # Store Performance Section
         html.Div([
@@ -467,13 +475,12 @@ html.Div([
      Output('product-table-left', 'data'),
      Output('product-table-right', 'data'),
      Output('last-date-display', 'children'),
-     Output('total-sales-display', 'children')],
+     Output('total-sales-display', 'children'),
+     Output("weekly-growth-display", "children")],  # Added Output for Weekly Growth
     
     [Input('date-picker', 'start_date'), 
      Input('date-picker', 'end_date')]
 )
-
-
 def update_tables(start_date, end_date):
     try:
         # Convert string dates to datetime if necessary
@@ -507,14 +514,20 @@ def update_tables(start_date, end_date):
         last_date = get_last_date()
         formatted_date = last_date.strftime('%B %d, %Y')
         date_display = html.P([
-                                "📅 This report compares the latest available sales data with the average sales from the previous 7 days, Update: ",
-                                html.Span(formatted_date, style={'fontWeight': 'bold', 'fontSize': '18px', 'color': '#e74c3c'})
-                            ], style={'fontSize': '16px', 'color': '#2c3e50'})
+            "📅 This report compares the latest available sales data with the average sales from the previous 7 days, Update: ",
+            html.Span(formatted_date, style={'fontWeight': 'bold', 'fontSize': '18px', 'color': '#e74c3c'})
+        ], style={'fontSize': '16px', 'color': '#2c3e50'})
 
-
-        total_sales = fetch_total_sales()
+        total_sales, weekly_growth = fetch_total_sales()
         total_sales_display = f"📊 Total Sales: ₹{total_sales:,.2f}" 
 
+        # Apply conditional formatting for Weekly Growth Percentage
+        growth_color = "#006400" if weekly_growth > 0 else "#e74c3c"  # Green for positive, Red for negative
+        weekly_growth_display = html.Span(
+            f"📈 Avg Weekly Growth: {weekly_growth:.2f}%", 
+            style={'fontWeight': 'bold', 'color': growth_color, 'fontSize': '20px'}
+        )
+        
         return (
             store_left.to_dict('records'),
             store_right.to_dict('records'),
@@ -525,15 +538,13 @@ def update_tables(start_date, end_date):
             product_left.to_dict('records'),
             product_right.to_dict('records'),
             date_display,
-            total_sales_display
+            total_sales_display,
+            weekly_growth_display  # Added Weekly Growth in the Return Statement
         )
-
-
     except Exception as e:
-        print(f"Error in update_tables: {str(e)}")
-        # Return empty data if there's an error
-        empty_data = {'records': []}
-        return [empty_data] * 8
+        print(f"Error: {e}")
+        return [], [], [], [], [], [], [], [], "Error fetching data", "N/A", "N/A"
+
 
 if __name__ == '__main__':
     app.run_server(debug=False, dev_tools_ui=False, dev_tools_props_check=False)
