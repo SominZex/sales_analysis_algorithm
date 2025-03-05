@@ -10,7 +10,9 @@ Conditional Formatting: Highlights positive and negative growth with different c
 
 ## Installation
 Clone the Repository:
+
 git clone https://github.com/SominZex/sales_analysis_algorithm.git
+
 cd sales_analysis_algorithm
 
 ## Install Dependencies: Ensure you have Python installed, then install the required packages using:
