@@ -24,8 +24,11 @@ python analysis.py
 ### For monthly analysis
 python monthly.py
 
+Navigate to /monthly_query/date_utils.py and change the date and month range you want to analyze
 
-Access the Dashboard: Open your web browser and navigate to http://127.0.0.1:8050 to view the dashboard.
+
+## Access the Dashboard: 
+Open your web browser and navigate to http://127.0.0.1:8050 to view the dashboard.
 Usage
 Selecting Date Range
 Use the date picker to select the start and end dates for the sales data you wish to analyze.
