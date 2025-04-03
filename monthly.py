@@ -36,7 +36,8 @@ HEADER_STYLE = {
     'textAlign': 'center'
 }
 # Fetch and process data
-store_data = fetch_monthly_sales()
+
+store_data, total_unique_invoices, total_sales = fetch_monthly_sales()
 subcategory_data = fetch_subcategory_data_monthly()
 brand_data = brand_sales()
 product_data = fetch_product_data_monthly()
@@ -46,14 +47,14 @@ product_data = fetch_product_data_monthly()
 app.layout = html.Div([
 
     html.Div([
-        html.H2("Monthly Sales Analysis (Feb-2025)", 
+        html.H2("Monthly Sale Report (March-2025)", 
             style={
-                'color': 'green',
+                'color': '#006400',  # Green for heading
                 'fontSize': '32px',
                 'fontWeight': 'bold',
                 'marginBottom': '20px',
                 'textAlign': 'center',
-                'borderBottom': '4px solid #3498db',
+                'borderBottom': '4px solid #3498db',  # Blue border
                 'paddingBottom': '10px'
             })
     ], style=HEADER_STYLE),
@@ -62,12 +63,69 @@ app.layout = html.Div([
     html.Div([
         html.P("Sales performance is measured against the average sales of last two months.",
             style={
-                'color': 'red',
+                'color': '#e74c3c',  # Red text for the note
                 'fontSize': '20px',
                 'textAlign': 'center',
                 'marginBottom': '40px'
             })
     ]),
+
+    # Display Total Unique Invoices and Total Sales Side by Side
+    html.Div([
+        html.Div([
+            html.H4(f"Total Unique Invoices: {total_unique_invoices}", 
+                style={
+                    'color': '#fff',  # White text
+                    'fontSize': '24px',
+                    'fontWeight': 'bold',
+                    'textAlign': 'center',
+                    'padding': '15px',
+                    'backgroundColor': '#2980b9',  # Blue background
+                    'borderRadius': '10px',
+                    'boxShadow': '0 4px 6px rgba(0, 0, 0, 0.1)',
+                    'width': '100%',  # Full width for each
+                    'maxWidth': '300px',  # Max width for each box
+                    'marginRight': '20px'  # Space between the two
+                }
+            ),
+        ], style={
+            'display': 'flex',
+            'justifyContent': 'center',  # Align in center
+            'textAlign': 'center',
+            'marginRight': '20px',  # Space between the two
+            'width': '45%'  # Adjust width to allow side-by-side
+        }),
+
+        html.Div([
+            html.H4(f"Total Sales: ₹{total_sales:,.2f}", 
+                style={
+                    'color': '#fff',  # White text
+                    'fontSize': '24px',
+                    'fontWeight': 'bold',
+                    'textAlign': 'center',
+                    'padding': '15px',
+                    'backgroundColor': '#2980b9',  # Blue background
+                    'borderRadius': '10px',
+                    'boxShadow': '0 4px 6px rgba(0, 0, 0, 0.1)',
+                    'width': '100%',  # Full width for each
+                    'maxWidth': '300px',  # Max width for each box
+                }
+            ),
+        ], style={
+            'display': 'flex',
+            'justifyContent': 'center',  # Align in center
+            'textAlign': 'center',
+            'width': '45%'  # Adjust width to allow side-by-side
+        }),
+
+    ], style={
+        'display': 'flex',  # Flexbox to align side by side
+        'justifyContent': 'center',  # Center the divs horizontally
+        'alignItems': 'center',  # Center the divs vertically
+        'marginBottom': '30px',  # Margin at the bottom
+        'textAlign': 'center'  # Center-align text inside the flex container
+    }),
+
 
     # Store Performance Section
     html.Div([
@@ -160,6 +218,8 @@ app.layout = html.Div([
 
         ], style={'display': 'flex', 'justifyContent': 'center', 'gap': '20px', 'width': '100%'})
     ], style=CARD_STYLE),
+
+    html.Div(style={'height': '100px'}),
     # Category Performance Section
     html.Div([
         html.H3("Category Performance", 
@@ -248,6 +308,7 @@ app.layout = html.Div([
         ], style={'display': 'flex', 'justifyContent': 'center', 'gap': '20px'})
     ], style=CARD_STYLE),
 
+    html.Div(style={'height': '1100px'}),
     # Brand Performance Section
     html.Div([  
         html.H3("Brand Performance", 
@@ -337,7 +398,7 @@ app.layout = html.Div([
     ], style=CARD_STYLE),
 
 
-    html.Div(style={'height': '800px'}),
+    html.Div(style={'height': '90px'}),
 
     # Product Performance Section
     html.Div([
@@ -436,4 +497,4 @@ app.layout = html.Div([
 
 # Run the server
 if __name__ == '__main__':
-    app.run_server(debug=False, dev_tools_ui=False, dev_tools_props_check=False)
+    app.run(debug=False, dev_tools_ui=False, dev_tools_props_check=False)

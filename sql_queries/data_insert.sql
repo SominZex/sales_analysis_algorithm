@@ -1,6 +1,3 @@
-START TRANSACTION;
-
--- Insert into brand_sales
 INSERT INTO brand_sales (brandName, NoOfOrders, Sales, AOV, orderDate)
 SELECT 
     brandName,  
@@ -9,7 +6,7 @@ SELECT
     ROUND(SUM(orderAmountNet) / NULLIF(COUNT(DISTINCT invoice), 0), 2) AS AOV,
     orderDate
 FROM sales_data
-WHERE orderDate = '2025-02-12'
+WHERE orderDate = '2025-03-16'
 GROUP BY brandName, orderDate
 ORDER BY Sales DESC;
 
@@ -20,7 +17,7 @@ SELECT
     SUM(orderAmountNet) AS Sales,
     orderDate
 FROM sales_data
-WHERE orderDate = '2025-02-12'
+WHERE orderDate = '2025-03-16'
 GROUP BY subCategoryOf, orderDate
 ORDER BY Sales DESC;
 
@@ -33,7 +30,7 @@ SELECT
     SUM(quantity) AS QuantitySold,
     orderDate
 FROM sales_data
-WHERE orderDate = '2025-02-12'
+WHERE orderDate = '2025-03-16'
 GROUP BY productName, orderDate
 ORDER BY Sales DESC;
 
@@ -46,12 +43,6 @@ SELECT
     ROUND(SUM(orderAmountNet) / NULLIF(COUNT(DISTINCT invoice), 0), 2) AS AOV, 
     orderDate
 FROM sales_data
-WHERE orderDate = '2025-02-12'
+WHERE orderDate = '2025-03-16'
 GROUP BY storeName, orderDate
 ORDER BY sales DESC;
-
-COMMIT;
-
-UPDATE table_name
-SET column_name = 'new_value'
-WHERE column_name = "name";

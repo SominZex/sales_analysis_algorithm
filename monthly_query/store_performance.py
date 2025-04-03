@@ -8,6 +8,18 @@ def fetch_monthly_sales():
     """Fetch total sales for February 2025 and calculate average monthly growth percentage from the previous two months (December 2024 and January 2025)."""
     engine = get_db_connection()
 
+    query_sales_current_month = """
+        SELECT 
+            COUNT(DISTINCT invoice) AS unique_invoices,
+            SUM(totalProductPrice) AS total_sales
+        FROM sales_data
+        WHERE DATE_FORMAT(orderDate, '%%Y-%%m') = %(current_month)s;
+    """
+    sales_current_month_df = pd.read_sql(query_sales_current_month, engine, params={'current_month': CURRENT_MONTH})
+
+    total_unique_invoices = sales_current_month_df['unique_invoices'].iloc[0]
+    total_monthly_sales = sales_current_month_df['total_sales'].iloc[0]
+
     # Fetch total sales for the current month
     query_sales_february = """
         SELECT storeName, SUM(orderAmountNet) AS total_sales 
@@ -49,4 +61,4 @@ def fetch_monthly_sales():
     sales_february_df["Sales & Trend"] = sales_february_df.apply(lambda row: f"{row['total_sales']:,.2f} {row['growth_arrow']}", axis=1)
     result_df = sales_february_df[["S.No", "storeName", "Sales & Trend"]].rename(columns={"storeName": "Store"})
 
-    return result_df
+    return result_df, total_unique_invoices, total_monthly_sales
