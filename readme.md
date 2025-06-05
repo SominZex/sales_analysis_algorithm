@@ -1,6 +1,9 @@
 ## Sales Performance Dashboard
 This application is a sales performance dashboard built using Dash, a Python framework for building analytical web applications. The dashboard provides insights into store, category, brand, and product sales performance over a specified date range.
 
+## Database
+MySQL is used for data.
+
 ## Features
 Sales Data Visualization: Displays sales data for stores, categories, brands, and products.
 Date Range Selection: Users can select a start and end date to filter the sales data.
