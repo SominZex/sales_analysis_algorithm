@@ -1,4 +1,5 @@
 import pandas as pd
+import plotly.graph_objs as go
 from connector import get_db_connection
 from queries.trend import get_trend_arrow
 
@@ -43,7 +44,12 @@ def fetch_total_sales():
 
 
 def fetch_sales_data(default_start_date=None, default_end_date=None):
-    """Fetch store sales data from store_sales table based on selected date range."""
+    """
+    Fetch store sales data from store_sales table based on selected date range.
+    Returns:
+        formatted_df: DataFrame for table display
+        chart_data: DataFrame with columns ['storeName', 'totalSales'] for charting
+    """
     engine = get_db_connection()
 
     # Get the latest orderDate dynamically
@@ -51,7 +57,9 @@ def fetch_sales_data(default_start_date=None, default_end_date=None):
     last_date = pd.read_sql(last_date_query, engine).iloc[0, 0]
 
     if last_date is None:
-        return pd.DataFrame(columns=["S.No", "Store Name", "Number of Orders", "Sales", "Average Order Value"])
+        empty_df = pd.DataFrame(columns=["S.No", "Store Name", "Number of Orders", "Sales", "Average Order Value"])
+        empty_chart = pd.DataFrame(columns=["storeName", "totalSales"])
+        return empty_df, empty_chart
 
     # Set default_end_date to last available date
     default_end_date = last_date if default_end_date is None else default_end_date
@@ -106,26 +114,70 @@ def fetch_sales_data(default_start_date=None, default_end_date=None):
     engine.dispose()
 
     if df.empty:
-        return pd.DataFrame(columns=["S.No", "Store Name", "Number of Orders", "Sales", "Average Order Value"])
+        empty_df = pd.DataFrame(columns=["S.No", "Store Name", "Number of Orders", "Sales", "Average Order Value"])
+        empty_chart = pd.DataFrame(columns=["storeName", "totalSales"])
+        return empty_df, empty_chart
 
-    # Add trend calculations
+    # Prepare chart data (numeric)
+    chart_data = df[["storeName", "totalSales"]].copy()
+    chart_data["totalSales"] = pd.to_numeric(chart_data["totalSales"], errors="coerce").fillna(0)
+
+    # Add trend calculations for table
     df["ordersTrend"] = df.apply(lambda row: get_trend_arrow(row["orders_today"], row["avg_orders_last_7_days"]), axis=1)
     df["salesTrend"] = df.apply(lambda row: get_trend_arrow(row["totalSales"], row["avg_sales_last_7_days"]), axis=1)
     df["AOVTrend"] = df.apply(lambda row: get_trend_arrow(row["AOV_today"], row["avg_AOV_last_7_days"]), axis=1)
 
-    # Format numbers
+    # Format numbers for table
     df["orders_today"] = df["orders_today"].apply(lambda x: f"{int(x):,}")
     df["totalSales"] = df["totalSales"].apply(lambda x: f"{float(x):,.2f}")
     df["AOV_today"] = df["AOV_today"].apply(lambda x: f"{float(x):,.2f}")
 
-    # Format display
+    # Format display for table
     df["Number of Orders"] = df["orders_today"] + " " + df["ordersTrend"]
     df["Sales"] = df["totalSales"] + " " + df["salesTrend"]
     df["Average Order Value"] = df["AOV_today"] + " " + df["AOVTrend"]
 
-    # Add serial number
+    # Add serial number for table
     df.insert(0, "S.No", range(1, len(df) + 1))
 
-    return df[["S.No", "storeName", "Number of Orders", "Sales", "Average Order Value"]].rename(
+    formatted_df = df[["S.No", "storeName", "Number of Orders", "Sales", "Average Order Value"]].rename(
         columns={"storeName": "Store Name"}
     )
+
+    return formatted_df, chart_data
+
+def create_store_sales_chart(chart_data, top_n=30):
+    """
+    Create a compact bar chart of top N stores by sales using Plotly.
+    chart_data: DataFrame with columns ['storeName', 'totalSales']
+    """
+    import plotly.graph_objs as go
+
+    if chart_data is None or chart_data.empty:
+        return go.Figure()
+
+    # Sort and select top N
+    chart_data_sorted = chart_data.sort_values(by='totalSales', ascending=False).head(top_n)
+
+    fig = go.Figure(
+        data=[
+            go.Bar(
+                x=chart_data_sorted['storeName'],
+                y=chart_data_sorted['totalSales'],
+                marker_color='#3498db',
+                text=[f'₹{val:,.0f}' for val in chart_data_sorted['totalSales']],
+                textposition='outside'
+            )
+        ]
+    )
+    fig.update_layout(
+        title=f"Top {top_n} Stores by Sales",
+        xaxis_title="Store Name",
+        yaxis_title="Sales",
+        xaxis_tickangle=-90,
+        plot_bgcolor='white',
+        margin=dict(l=40, r=20, t=30, b=110),
+        height=400, 
+        width=1500
+    )
+    return fig

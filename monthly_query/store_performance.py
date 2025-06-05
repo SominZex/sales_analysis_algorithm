@@ -22,7 +22,7 @@ def fetch_monthly_sales():
 
     # Fetch total sales for the current month
     query_sales_february = """
-        SELECT storeName, SUM(orderAmountNet) AS total_sales 
+        SELECT storeName, SUM(totalProductPrice) AS total_sales 
         FROM sales_data 
         WHERE DATE_FORMAT(orderDate, '%%Y-%%m') = %(current_month)s
         GROUP BY storeName;
@@ -31,7 +31,7 @@ def fetch_monthly_sales():
 
     # Fetch total sales for the previous two months
     query_sales_previous_months = """
-        SELECT storeName, SUM(orderAmountNet) AS total_sales 
+        SELECT storeName, SUM(totalProductPrice) AS total_sales 
         FROM sales_data 
         WHERE DATE_FORMAT(orderDate, '%%Y-%%m') IN %(previous_two_months)s
         GROUP BY storeName;

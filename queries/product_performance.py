@@ -1,6 +1,7 @@
 import pandas as pd
 from connector import get_db_connection
 from queries.trend import get_trend_arrow
+import plotly.graph_objs as go
 
 def fetch_product_data(default_start_date=None, default_end_date=None):
     """Fetch product sales data dynamically from product_sales table, limited to top 100 products by sales."""
@@ -82,3 +83,46 @@ def fetch_product_data(default_start_date=None, default_end_date=None):
     df.columns = ["S.No", "Product Name", "Sales", "Quantity Sold"]
 
     return df
+
+
+def create_product_sales_bar_chart(df, top_n=50):
+    """
+    Create a bar chart of top N products by sales using Plotly.
+    Expects a DataFrame with columns ['Product Name', 'Sales'] (with trend arrows in 'Sales').
+    """
+    if df.empty or 'Product Name' not in df.columns or 'Sales' not in df.columns:
+        return go.Figure()
+
+    # Extract numeric sales values for sorting and plotting
+    def extract_numeric(s):
+        # Handles values like "12345 🡅 (12.3%)"
+        return float(str(s).split()[0].replace(',', ''))
+
+    df_plot = df.copy()
+    df_plot['SalesValue'] = df_plot['Sales'].apply(extract_numeric)
+
+    # Sort and select top N
+    df_plot = df_plot.sort_values(by='SalesValue', ascending=False).head(top_n)
+
+    fig = go.Figure(
+        data=[
+            go.Bar(
+                x=df_plot['Product Name'],
+                y=df_plot['SalesValue'],
+                marker_color='#16a085',
+                text=[f'₹{val:,.0f}' for val in df_plot['SalesValue']],
+                textposition='outside'
+            )
+        ]
+    )
+    fig.update_layout(
+        title=f"Top {top_n} Products by Sales",
+        xaxis_title="Product Name",
+        yaxis_title="Sales",
+        xaxis_tickangle=-90,
+        plot_bgcolor='white',
+        margin=dict(l=40, r=20, t=60, b=120),
+        height=700,
+        width=1200
+    )
+    return fig

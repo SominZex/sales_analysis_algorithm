@@ -12,7 +12,7 @@ def fetch_subcategory_data_monthly():
     WITH monthly_sales AS (
         SELECT 
             subCategoryOf,
-            SUM(orderAmountNet) AS total_sales
+            SUM(totalProductPrice) AS total_sales
         FROM sales_data
         WHERE DATE_FORMAT(orderDate, '%%Y-%%m') = %(current_month)s
         GROUP BY subCategoryOf
@@ -20,7 +20,7 @@ def fetch_subcategory_data_monthly():
     previous_two_months AS (
         SELECT 
             subCategoryOf,
-            SUM(orderAmountNet) AS total_sales
+            SUM(totalProductPrice) AS total_sales
         FROM sales_data
         WHERE DATE_FORMAT(orderDate, '%%Y-%%m') IN %(previous_two_months)s
         GROUP BY subCategoryOf
@@ -64,7 +64,7 @@ def fetch_subcategory_data_monthly():
         return f"{arrow} ({change_percent:.1f}%)"
 
     df["salesTrend"] = df.apply(calculate_growth_arrow, axis=1)
-    df["total_sales"] = df["total_sales"].astype(str) + " " + df["salesTrend"]
+    df["total_sales"] = df["total_sales"].round(2).astype(str) + " " + df["salesTrend"]
 
     # Add Serial Number column
     df.insert(0, "S.No", df.index + 1)

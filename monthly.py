@@ -35,7 +35,6 @@ HEADER_STYLE = {
     'borderBottom': '2px solid #eee',
     'textAlign': 'center'
 }
-# Fetch and process data
 
 store_data, total_unique_invoices, total_sales = fetch_monthly_sales()
 subcategory_data = fetch_subcategory_data_monthly()
@@ -47,83 +46,81 @@ product_data = fetch_product_data_monthly()
 app.layout = html.Div([
 
     html.Div([
-        html.H2("Monthly Sale Report (March-2025)", 
+        html.H2("Monthly Sale Report (May-2025)", 
             style={
-                'color': '#006400',  # Green for heading
+                'color': '#006400',
                 'fontSize': '32px',
                 'fontWeight': 'bold',
                 'marginBottom': '20px',
                 'textAlign': 'center',
-                'borderBottom': '4px solid #3498db',  # Blue border
+                'borderBottom': '4px solid #3498db',
                 'paddingBottom': '10px'
             })
     ], style=HEADER_STYLE),
 
-    # Note on Calculation
     html.Div([
-        html.P("Sales performance is measured against the average sales of last two months.",
+        html.P("Sales performance is measured against the average sales of previous two months to the current month.",
             style={
-                'color': '#e74c3c',  # Red text for the note
+                'color': '#e74c3c',
                 'fontSize': '20px',
                 'textAlign': 'center',
                 'marginBottom': '40px'
             })
     ]),
 
-    # Display Total Unique Invoices and Total Sales Side by Side
     html.Div([
         html.Div([
             html.H4(f"Total Unique Invoices: {total_unique_invoices}", 
                 style={
-                    'color': '#fff',  # White text
+                    'color': '#fff',
                     'fontSize': '24px',
                     'fontWeight': 'bold',
                     'textAlign': 'center',
                     'padding': '15px',
-                    'backgroundColor': '#2980b9',  # Blue background
+                    'backgroundColor': '#2980b9',
                     'borderRadius': '10px',
                     'boxShadow': '0 4px 6px rgba(0, 0, 0, 0.1)',
-                    'width': '100%',  # Full width for each
-                    'maxWidth': '300px',  # Max width for each box
-                    'marginRight': '20px'  # Space between the two
+                    'width': '100%',
+                    'maxWidth': '300px',
+                    'marginRight': '20px'
                 }
             ),
         ], style={
             'display': 'flex',
-            'justifyContent': 'center',  # Align in center
+            'justifyContent': 'center',
             'textAlign': 'center',
-            'marginRight': '20px',  # Space between the two
-            'width': '45%'  # Adjust width to allow side-by-side
+            'marginRight': '20px',
+            'width': '45%'
         }),
 
         html.Div([
             html.H4(f"Total Sales: ₹{total_sales:,.2f}", 
                 style={
-                    'color': '#fff',  # White text
+                    'color': '#fff',
                     'fontSize': '24px',
                     'fontWeight': 'bold',
                     'textAlign': 'center',
                     'padding': '15px',
-                    'backgroundColor': '#2980b9',  # Blue background
+                    'backgroundColor': '#2980b9',
                     'borderRadius': '10px',
                     'boxShadow': '0 4px 6px rgba(0, 0, 0, 0.1)',
-                    'width': '100%',  # Full width for each
-                    'maxWidth': '300px',  # Max width for each box
+                    'width': '100%',
+                    'maxWidth': '300px',
                 }
             ),
         ], style={
             'display': 'flex',
-            'justifyContent': 'center',  # Align in center
+            'justifyContent': 'center',
             'textAlign': 'center',
-            'width': '45%'  # Adjust width to allow side-by-side
+            'width': '45%'
         }),
 
     ], style={
-        'display': 'flex',  # Flexbox to align side by side
-        'justifyContent': 'center',  # Center the divs horizontally
-        'alignItems': 'center',  # Center the divs vertically
-        'marginBottom': '30px',  # Margin at the bottom
-        'textAlign': 'center'  # Center-align text inside the flex container
+        'display': 'flex',
+        'justifyContent': 'center',
+        'alignItems': 'center',
+        'marginBottom': '30px',
+        'textAlign': 'center'
     }),
 
 
@@ -219,7 +216,7 @@ app.layout = html.Div([
         ], style={'display': 'flex', 'justifyContent': 'center', 'gap': '20px', 'width': '100%'})
     ], style=CARD_STYLE),
 
-    html.Div(style={'height': '100px'}),
+    html.Div(style={'height': '20px'}),
     # Category Performance Section
     html.Div([
         html.H3("Category Performance", 
@@ -308,7 +305,7 @@ app.layout = html.Div([
         ], style={'display': 'flex', 'justifyContent': 'center', 'gap': '20px'})
     ], style=CARD_STYLE),
 
-    html.Div(style={'height': '1100px'}),
+    html.Div(style={'height': '200px'}),
     # Brand Performance Section
     html.Div([  
         html.H3("Brand Performance", 
@@ -420,7 +417,7 @@ app.layout = html.Div([
                     id='product-table-left',
                     columns=[
                         {"name": "S.No", "id": "S.No"},
-                        {"name": "Product ID", "id": "Product ID"},
+                        {"name": "Product Name", "id": "Product Name"},
                         {"name": "Sales", "id": "Sales"},
                         {"name": "Quantity Sold", "id": "Quantity Sold"}
                     ],
@@ -459,7 +456,7 @@ app.layout = html.Div([
                     id='product-table-right',
                     columns=[
                         {"name": "S.No", "id": "S.No"},
-                        {"name": "Product ID", "id": "Product ID"},
+                        {"name": "Product Name", "id": "Product Name"},
                         {"name": "Sales", "id": "Sales"},
                         {"name": "Quantity Sold", "id": "Quantity Sold"}
                     ],

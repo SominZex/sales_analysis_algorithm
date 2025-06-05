@@ -9,24 +9,24 @@ def fetch_product_data_monthly():
 
     # Fetch total sales and quantity for the current month
     query_current_month = """
-        SELECT productId, SUM(orderAmountNet) AS total_sales, SUM(quantity) AS total_quantity
+        SELECT productName, SUM(totalProductPrice) AS total_sales, SUM(quantity) AS total_quantity
         FROM sales_data
         WHERE DATE_FORMAT(orderDate, '%%Y-%%m') = %(current_month)s
-        GROUP BY productId;
+        GROUP BY productName;
     """
     current_month_df = pd.read_sql(query_current_month, engine, params={'current_month': CURRENT_MONTH})
 
     # Fetch total sales and quantity for the previous two months
     query_previous_months = """
-        SELECT productId, SUM(orderAmountNet) AS total_sales, SUM(quantity) AS total_quantity
+        SELECT productName, SUM(totalProductPrice) AS total_sales, SUM(quantity) AS total_quantity
         FROM sales_data
         WHERE DATE_FORMAT(orderDate, '%%Y-%%m') IN %(previous_two_months)s
-        GROUP BY productId;
+        GROUP BY productName;
     """
     previous_months_df = pd.read_sql(query_previous_months, engine, params={'previous_two_months': tuple(PREVIOUS_TWO_MONTHS)})
 
     # Calculate average sales and quantity for the previous two months
-    avg_previous_months = previous_months_df.groupby('productId').agg(
+    avg_previous_months = previous_months_df.groupby('productName').agg(
         avg_sales_previous_two_months=('total_sales', 'sum'),
         avg_quantity_previous_two_months=('total_quantity', 'sum')
     ).reset_index()
@@ -35,7 +35,7 @@ def fetch_product_data_monthly():
     engine.dispose()
 
     # Merge current and previous sales data
-    df = current_month_df.merge(avg_previous_months, on="productId", how="left").fillna(0)
+    df = current_month_df.merge(avg_previous_months, on="productName", how="left").fillna(0)
 
     # Calculate sales and quantity trends
     def calculate_growth_arrow(row):
@@ -47,8 +47,8 @@ def fetch_product_data_monthly():
 
     df["salesTrend"] = df.apply(calculate_growth_arrow, axis=1)
 
-    # Format display values with trends
-    df["sales_display"] = df["total_sales"].astype(str) + " " + df["salesTrend"]
+    # Format display values with trends - Round sales to 2 decimal places
+    df["sales_display"] = df["total_sales"].round(2).astype(str) + " " + df["salesTrend"]
     df["quantity_display"] = df["total_quantity"].astype(str)  # Simplified quantity display
 
     # Sort by total sales in descending order and select top 100 products
@@ -58,7 +58,7 @@ def fetch_product_data_monthly():
     df.insert(0, "S.No", range(1, len(df) + 1))
 
     # Select and rename columns for display
-    df = df[["S.No", "productId", "sales_display", "quantity_display"]]
-    df.columns = ["S.No", "Product ID", "Sales", "Quantity Sold"]
+    df = df[["S.No", "productName", "sales_display", "quantity_display"]]
+    df.columns = ["S.No", "Product Name", "Sales", "Quantity Sold"]
 
     return df

@@ -7,11 +7,11 @@ def brand_sales():
     """Fetch brand sales data for February 2025 and compare to average sales of previous two months."""
     engine = get_db_connection()
 
-    last_month = "2025-02"
+    last_month = "2025-05"
 
     # Fetch total sales for February 2025
     query_sales = """
-        SELECT brandName, SUM(orderAmountNet) AS total_sales 
+        SELECT brandName, SUM(totalProductPrice) AS total_sales 
         FROM sales_data 
         WHERE DATE_FORMAT(orderDate, '%%Y-%%m') = %(current_month)s
         GROUP BY brandName;
@@ -21,7 +21,7 @@ def brand_sales():
 
     # Fetch total sales for the previous two months (December 2024, January 2025)
     query_sales_previous_months = """
-        SELECT brandName, SUM(orderAmountNet) AS total_sales 
+        SELECT brandName, SUM(totalProductPrice) AS total_sales 
         FROM sales_data 
         WHERE DATE_FORMAT(orderDate, '%%Y-%%m') IN %(previous_two_months)s
         GROUP BY brandName;

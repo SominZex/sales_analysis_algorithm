@@ -1,6 +1,7 @@
 import pandas as pd
 from connector import get_db_connection
 from queries.trend import get_trend_arrow
+import plotly.graph_objs as go
 
 def fetch_brand_data(default_start_date=None, default_end_date=None):
     """Fetch brand sales data dynamically from brand_sales table."""
@@ -89,3 +90,56 @@ def fetch_brand_data(default_start_date=None, default_end_date=None):
     df.columns = ["S.No", "Brand Name", "Number of Orders", "Sales", "Average Order Value"]
 
     return df
+
+
+
+def create_brand_sales_bar_chart(top_n=15):
+    """
+    Create a bar chart of brandName vs Sales for the latest available day.
+    Shows data labels on bars.
+    Returns a Plotly Figure.
+    """
+    engine = get_db_connection()
+
+    # Get the latest available orderDate
+    last_date_query = "SELECT MAX(orderDate) FROM brand_sales;"
+    last_date = pd.read_sql(last_date_query, engine).iloc[0, 0]
+    if last_date is None:
+        return go.Figure()
+
+    # Get top N brands by sales for the latest day
+    query = """
+        SELECT brandName, Sales
+        FROM brand_sales
+        WHERE orderDate = %(last_date)s
+        ORDER BY Sales DESC
+        LIMIT %(top_n)s
+    """
+    df = pd.read_sql(query, engine, params={'last_date': last_date, 'top_n': top_n})
+    engine.dispose()
+
+    if df.empty:
+        return go.Figure()
+
+    fig = go.Figure(
+        data=[
+            go.Bar(
+                x=df['brandName'],
+                y=df['Sales'],
+                marker_color='#2980b9',
+                text=[f'₹{v:,.0f}' for v in df['Sales']],
+                textposition='outside'
+            )
+        ]
+    )
+    fig.update_layout(
+        title=f"Top {top_n} Brands by Sales ({last_date})",
+        xaxis_title="Brand Name",
+        yaxis_title="Sales",
+        xaxis_tickangle=-90,
+        plot_bgcolor='white',
+        height=700,
+        width=1200,
+        margin=dict(l=40, r=20, t=60, b=120)
+    )
+    return fig

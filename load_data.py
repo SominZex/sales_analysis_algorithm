@@ -16,8 +16,7 @@ expected_columns = [
     "customerNumber", "orderFrom", "orderStatus", "cashAmount", "cardAmount", "upiAmount", "creditAmount"
 ]
 
-# Define column data types
-dtype_mapping = {col: str for col in expected_columns}  # Default all to string for safe loading
+dtype_mapping = {col: str for col in expected_columns}
 dtype_mapping.update({
     "productId": pd.Int64Dtype(),
     "quantity": pd.Int64Dtype(),
@@ -44,8 +43,7 @@ dtype_mapping.update({
     "commision": float
 })
 
-# Default values for missing data
-default_values = {col: "NA" for col in expected_columns}  # Default to "NA" for strings
+default_values = {col: "NA" for col in expected_columns}
 default_values.update({
     "orderDate": '1900-01-01',
     "time": '00:00:00',

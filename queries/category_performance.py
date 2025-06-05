@@ -1,6 +1,7 @@
 import pandas as pd
 from connector import get_db_connection
 from queries.trend import get_trend_arrow
+import plotly.graph_objs as go
 
 def fetch_subcategory_data(default_start_date=None, default_end_date=None):
     """Fetch subcategory sales data dynamically from category_sales table."""
@@ -72,3 +73,47 @@ def fetch_subcategory_data(default_start_date=None, default_end_date=None):
     df.columns = ["S.No", "Subcategory", "Sales"]
 
     return df
+
+
+def create_category_sales_chart(df, top_n=20):
+    """
+    Create a bar chart of top N subcategories by sales using Plotly.
+    Expects a DataFrame with columns ['Subcategory', 'Sales'] (with trend arrows in 'Sales').
+    """
+    # Extract numeric sales values for sorting and plotting
+    if df.empty or 'Subcategory' not in df.columns or 'Sales' not in df.columns:
+        return go.Figure()
+
+    # Remove trend arrows and convert to float for sorting/plotting
+    def extract_numeric(s):
+        # Handles values like "12345.67 🡅 (12.3%)"
+        return float(str(s).split()[0].replace(',', ''))
+
+    df_plot = df.copy()
+    df_plot['SalesValue'] = df_plot['Sales'].apply(extract_numeric)
+
+    # Sort and select top N
+    df_plot = df_plot.sort_values(by='SalesValue', ascending=False).head(top_n)
+
+    fig = go.Figure(
+        data=[
+            go.Bar(
+                x=df_plot['Subcategory'],
+                y=df_plot['SalesValue'],
+                marker_color='#8e44ad',
+                text=[f'₹{val:,.0f}' for val in df_plot['SalesValue']],
+                textposition='outside'
+            )
+        ]
+    )
+    fig.update_layout(
+        title=f"Top {top_n} Subcategories by Sales",
+        xaxis_title="Subcategory",
+        yaxis_title="Sales",
+        xaxis_tickangle=-90,
+        plot_bgcolor='white',
+        margin=dict(l=40, r=20, t=60, b=120),
+        height=500,
+        width=700
+    )
+    return fig
