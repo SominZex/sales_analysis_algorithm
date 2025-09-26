@@ -16,10 +16,10 @@ def load_aggregates_to_postgres(df: pd.DataFrame):
         df = df[df['totalProductPrice'].notna()]
         print("Connecting to database...")
         conn = psycopg2.connect(
-            host="server_ip_address",
-            port="port_no",
+            host="server_ip",
+            port="port",
             database="db_name",
-            user="postgres",
+            user="user_name",
             password="pw"
         )
         cur = conn.cursor()

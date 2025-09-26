@@ -47,8 +47,6 @@ HEADER_STYLE = {
     'textAlign': 'center'
 }
 
-
-
 app.layout = html.Div([
     # Main container with background color
     html.Div([
@@ -314,7 +312,7 @@ html.Div([
         ], style=CARD_STYLE),
 
 
-        html.Div(style={'height': '150px'}),
+        html.Div(style={'height': '80px'}),
 # Brand Performance Section
         html.Div([  
             html.H3("Brand Performance", 
@@ -402,8 +400,9 @@ html.Div([
                 ]
             )
         ], style={'display': 'flex', 'justifyContent': 'center', 'gap': '20px'}),
+
         # --- Add the chart right below the tables ---
-        html.Div(style={'height': '250px'}),
+        html.Div(style={'height': '100px'}),
         html.Div([
             dcc.Graph(
                 id='brand-sales-chart',
@@ -420,23 +419,22 @@ html.Div([
         }),
     ], style=CARD_STYLE),
 
-# ... (other layout code above)
 
-html.Div(style={'height': '380px'}),
+    html.Div(style={'height': '600px'}),
 
-# Product Performance Section
-html.Div([
-    html.H3("Product Performance", 
-        style={
-            'color': '#2c3e50',
-            'fontSize': '24px',
-            'marginBottom': '20px',
-            'paddingLeft': '10px',
-            'borderLeft': '4px solid #9b59b6',
-            'borderBottom': '4px solid #3498db',
-            'textAlign': 'center'
-        }),
-    # Tables row
+    # Product Performance Section
+    html.Div([
+        html.H3("Product Performance", 
+            style={
+                'color': '#2c3e50',
+                'fontSize': '24px',
+                'marginBottom': '20px',
+                'paddingLeft': '10px',
+                'borderLeft': '4px solid #9b59b6',
+                'borderBottom': '4px solid #3498db',
+                'textAlign': 'center'
+            }),
+        # Tables row
     html.Div([
         # Left Table
         html.Div([
@@ -495,7 +493,7 @@ html.Div([
                 style_header={
                     'backgroundColor': '#fff3cd',
                     'fontWeight': 'bold',
-                    'borderBottom': '2px solid #dee2e6'
+                    'borderBottom': '2px solid #dee2e6' 
                 },
                 style_data={
                     'backgroundColor': 'white',
@@ -522,7 +520,7 @@ html.Div([
     }),
 
     # White space between tables and chart
-    html.Div(style={'height': '400px'}),
+    html.Div(style={'height': '500px'}),
 
     # Product Sales Chart below the tables
         html.Div([
@@ -585,18 +583,22 @@ def update_tables(start_date, end_date):
         category_left = category_data.iloc[:mid_index_category]   
         category_right = category_data.iloc[mid_index_category:]
         category_fig = create_category_sales_chart(category_data, top_n=15)
+        
         brand_data = fetch_brand_data(start_date, end_date)
         mid_index_brand = len(brand_data) // 2
         brand_left = brand_data.iloc[:mid_index_brand]
         brand_right = brand_data.iloc[mid_index_brand:]
-        brand_fig = create_brand_sales_bar_chart(top_n=30)
+        # Fixed: Pass brand_data to the chart function
+        brand_fig = create_brand_sales_bar_chart(brand_data, top_n=30)
+        
         product_data = fetch_product_data(start_date, end_date)
         mid_index_product = len(product_data) // 2
         product_left = product_data.iloc[:mid_index_product]
         product_right = product_data.iloc[mid_index_product:]
         product_fig = create_product_sales_bar_chart(product_data, top_n=30)
-
+        
         last_date = get_last_date()
+        
         formatted_date = last_date.strftime('%B %d, %Y')
         date_display = html.P([
             "📅 This report compares the latest available sales data with the average sales from the previous 7 days, Update: ",
@@ -627,11 +629,14 @@ def update_tables(start_date, end_date):
             product_fig,
             date_display,
             total_sales_display,
-            weekly_growth_display  
+            weekly_growth_display
         )
-    except Exception as e:
+        
+    except Exception as e: 
         print(f"Error: {e}")
-        return [], [], {}, [], [], [], [], [], [], [], "Error fetching data", "N/A", "N/A"
+        import traceback
+        print(f"Full traceback: {traceback.format_exc()}")
+        return [], [], {}, [], [], {}, [], [], {}, [],[],{}, "Error fetching data", "N/A", "N/A"
 
 
 if __name__ == '__main__':

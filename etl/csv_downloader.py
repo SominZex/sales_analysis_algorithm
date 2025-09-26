@@ -7,7 +7,7 @@ from datetime import datetime, timedelta
 
 
 class CSVDownloader:
-    def __init__(self, base_url="https://api.thenewshop.in", username="new_shop_user", password="new_shop_pw"):
+    def __init__(self, base_url="https://api.thenewshop.in", username="user_name", password="pw"):
         self.base_url = base_url
         self.username = username
         self.password = password

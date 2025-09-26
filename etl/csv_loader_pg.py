@@ -7,11 +7,11 @@ import sys
 class FastCSVLoader:
     def __init__(self):
         self.db_config = {
-            "host": "server_ip_address",
-            "port": "port_no",
+            "host": "server_ip",
+            "port": "port",
             "database": "db_name",
             "user": "user_name",
-            "password": "pw"
+            "password": "password"
         }
 
     def load_csv_to_database(self, csv_file_path):

@@ -46,7 +46,7 @@ product_data = fetch_product_data_monthly()
 app.layout = html.Div([
 
     html.Div([
-        html.H2("Monthly Sale Report (May-2025)", 
+        html.H2("Monthly Sale Report (August-2025)", 
             style={
                 'color': '#006400',
                 'fontSize': '32px',
@@ -305,7 +305,7 @@ app.layout = html.Div([
         ], style={'display': 'flex', 'justifyContent': 'center', 'gap': '20px'})
     ], style=CARD_STYLE),
 
-    html.Div(style={'height': '200px'}),
+    html.Div(style={'height': '800px'}),
     # Brand Performance Section
     html.Div([  
         html.H3("Brand Performance", 

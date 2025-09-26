@@ -9,27 +9,27 @@ import time
 def get_mysql_connection():
     return mysql.connector.connect(
         host="localhost",
-        user="user_name",
+        user="root",
         password="root",
-        database="db_name"
+        database="sales_data"
     )
 
 
 # --- PostgreSQL connection ---
 def get_pg_connection():
     return psycopg2.connect(
-        host="server_ip_address",
-        port="port_no",
+        host="server_ip",
+        port="port",
         database="db_name",
         user="user_name",
-        password="pw"
+        password="password"
     )
 
 
 def migrate_sales(start_date, end_date):
     start_time = time.time()
 
-    # SQL query (exclude productMrp)
+    # SQL query
     query = f"""
         SELECT 
             invoice, storeInvoice, orderDate, time, productId, productName, barcode,

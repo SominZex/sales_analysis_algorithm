@@ -26,7 +26,7 @@ BIGINT_COLUMNS = ["barcode"]
 NUMERIC_COLUMNS = ["GST", "CGSTRate", "SGSTRate", "acessAmount", "cess"]
 
 class CSVDownloader:
-    def __init__(self, base_url="https://api.thenewshop.in", username="nssomin", password="nssomin"):
+    def __init__(self, base_url="https://api.thenewshop.in", username="user_name", password="password"):
         self.base_url = base_url
         self.username = username
         self.password = password
@@ -246,11 +246,11 @@ def load_to_postgres_bulk(df: pd.DataFrame):
     try:
         print("Connecting to database...")
         conn = psycopg2.connect(
-            host="ip_server",
+            host="server_ip",
             port="port",
             database="db_name",
-            user="user",
-            password="pw"
+            user="user_name",
+            password="pwd"
         )
         cur = conn.cursor()
         

@@ -8,7 +8,7 @@ def fetch_product_data(default_start_date=None, default_end_date=None):
     engine = get_db_connection()
 
     # Get the latest available orderDate dynamically
-    last_date_query = "SELECT MAX(orderDate) FROM product_sales;"
+    last_date_query = 'SELECT MAX("orderdate") FROM "product_sales";'
     last_date = pd.read_sql(last_date_query, engine).iloc[0, 0]
 
     if last_date is None:
@@ -21,47 +21,47 @@ def fetch_product_data(default_start_date=None, default_end_date=None):
     query = """
     WITH last_day_sales AS (
         SELECT 
-            productName,
-            Sales AS sales_today,
-            QuantitySold AS quantity_today
+            "productname",
+            "sales" AS sales_today,
+            "quantitysold" AS quantity_today
         FROM product_sales
-        WHERE orderDate = %(default_end_date)s
+        WHERE "orderdate" = %(default_end_date)s
     ),
     previous_period AS (
         SELECT 
-            productName,
-            ROUND(AVG(Sales), 2) AS avg_sales_previous_days,
-            ROUND(AVG(QuantitySold), 2) AS avg_quantity_previous_days
+            "productname",
+            ROUND(AVG("sales"), 2) AS avg_sales_previous_days,
+            ROUND(AVG("quantitysold"), 2) AS avg_quantity_previous_days
         FROM product_sales
-        WHERE orderDate BETWEEN DATE_SUB(%(default_end_date)s, INTERVAL 7 DAY) AND DATE_SUB(%(default_end_date)s, INTERVAL 1 DAY)
-        GROUP BY productName
+        WHERE "orderdate" BETWEEN %(default_start_date)s AND %(default_end_date)s - INTERVAL '1 day'
+        GROUP BY "productname"
     )
     SELECT 
-        COALESCE(l.productName, p.productName) AS productName,
+        COALESCE(l."productname", p."productname") AS "productname",
         COALESCE(l.sales_today, 0) AS sales_today,
         COALESCE(l.quantity_today, 0) AS quantity_today,
         COALESCE(p.avg_sales_previous_days, 0) AS avg_sales_previous_days,
         COALESCE(p.avg_quantity_previous_days, 0) AS avg_quantity_previous_days
     FROM last_day_sales l
-    LEFT JOIN previous_period p ON l.productName = p.productName
-    
+    LEFT JOIN previous_period p ON l."productname" = p."productname"
+
     UNION
-    
+
     SELECT 
-        p.productName,
+        p."productname",
         0 AS sales_today,
         0 AS quantity_today,
         p.avg_sales_previous_days,
         p.avg_quantity_previous_days
     FROM previous_period p
-    LEFT JOIN last_day_sales l ON p.productName = l.productName
-    WHERE l.productName IS NULL
-    
+    LEFT JOIN last_day_sales l ON p."productname" = l."productname"
+    WHERE l."productname" IS NULL
+
     ORDER BY sales_today DESC
     LIMIT 100;
     """
 
-    df = pd.read_sql(query, engine, params={'default_end_date': default_end_date})
+    df = pd.read_sql(query, engine, params={'default_end_date': default_end_date, 'default_start_date': default_start_date})
     engine.dispose()
 
     if df.empty:
@@ -79,11 +79,10 @@ def fetch_product_data(default_start_date=None, default_end_date=None):
     df.insert(0, "S.No", range(1, len(df) + 1))
 
     # Select and rename columns for display
-    df = df[["S.No", "productName", "sales_display", "quantity_display"]]
+    df = df[["S.No", "productname", "sales_display", "quantity_display"]]
     df.columns = ["S.No", "Product Name", "Sales", "Quantity Sold"]
 
     return df
-
 
 def create_product_sales_bar_chart(df, top_n=50):
     """

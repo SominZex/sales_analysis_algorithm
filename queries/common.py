@@ -3,9 +3,10 @@ from connector import get_db_connection
 
 def get_last_date():
     engine = get_db_connection()
+
     query = """
-    SELECT MAX(orderDate) as last_date 
-    FROM sales_data
+    SELECT MAX("orderDate") as last_date 
+    FROM billing_data;
     """
     df = pd.read_sql(query, engine)
     engine.dispose()

@@ -2,9 +2,9 @@ import psycopg2
 
 # Database connection details
 DB_HOST = "server_ip"
-DB_NAME = "db"
+DB_NAME = "db_name"
 DB_USER = "user_name"
-DB_PASSWORD = "pw"
+DB_PASSWORD = "password"
 
 queries = [
     # === Product updates ===
@@ -64,10 +64,10 @@ def run_updates():
         for q in queries:
             cur.execute(q)
         conn.commit()
-        print("✅ All updates applied successfully")
+        print("All updates applied successfully")
         cur.close()
     except Exception as e:
-        print(f"❌ Error running updates: {e}")
+        print(f"Error running updates: {e}")
     finally:
         if conn:
             conn.close()
