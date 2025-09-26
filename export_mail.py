@@ -20,8 +20,8 @@ EMAIL_CONFIG = {
     'recipients': ['data@newshop.in', 'it@newshop.in', 'kamfranchise@newshop.in', 'mani@newshop.in', 'satpal@newshop.in',
                    'franchise@newshop.in', 'kuldeep@newshop.in', 'bharti@newshop.in', 'fnb@newshop.in', 'kartikay.singh@newshop.in',
                    ],
-    'tracking_host': 'http://74.225.249.155:8000',
-    'summary_recipient': 'mani@newshop.in'
+    'tracking_host': 'http://<host_ip>:<port>',
+    'summary_recipient': 'forward@mail'
 }
 
 # PostgreSQL config
