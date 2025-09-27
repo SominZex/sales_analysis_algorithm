@@ -14,23 +14,21 @@ import uuid
 EMAIL_CONFIG = {
     'smtp_server': 'smtp.gmail.com',
     'smtp_port': 587,
-    'sender_email': 'email_id',
-    'sender_password': '16 char Google App PAssword',
-    
-    'recipients': ['data@newshop.in', 'it@newshop.in', 'kamfranchise@newshop.in', 'mani@newshop.in', 'satpal@newshop.in',
-                   'franchise@newshop.in', 'kuldeep@newshop.in', 'bharti@newshop.in', 'fnb@newshop.in', 'kartikay.singh@newshop.in',
-                   ],
-    'tracking_host': 'http://74.225.249.155:8000',
-    'summary_recipient': 'mani@newshop.in'
+    'sender_email': 'mail',
+    'sender_password': 'app_pw',
+    'to': 'mail_mail',
+    'cc_recipients': ['list', 'of', 'mail'],
+    'tracking_host': 'http://<ip_server>:<port>',
+    'summary_recipient': 'email'
 }
 
 # PostgreSQL config
 PG_CONFIG = {
     'dbname': 'db_name',
     'user': 'user_name',
-    'password': 'password',
+    'password': 'pw',
     'host': 'server_ip',
-    'port': 
+    'port': port
 }
 
 def log_event(recipient, report_date, event):
@@ -76,49 +74,55 @@ def send_email_with_attachment():
             print(f"PDF file not found: {file_path}")
             return False
 
-        for recipient in EMAIL_CONFIG['recipients']:
-            msg = MIMEMultipart('alternative')
-            msg['From'] = EMAIL_CONFIG['sender_email']
-            msg['To'] = recipient
-            msg['Subject'] = f"Daily Sales Report - {yesterday}"
+        # Create single email with TO and CC
+        msg = MIMEMultipart('alternative')
+        msg['From'] = EMAIL_CONFIG['sender_email']
+        msg['To'] = EMAIL_CONFIG['to']  # data@newshop.in
+        msg['Cc'] = ', '.join(EMAIL_CONFIG['cc_recipients'])  # All other recipients in CC
+        msg['Subject'] = f"Daily Sales Report - {yesterday}"
 
-            # Unique ID for this email for robust tracking
-            unique_id = str(uuid.uuid4())
+        # Unique ID for this email for robust tracking
+        unique_id = str(uuid.uuid4())
 
-            # Tracking pixel URL for email opens
-            tracking_pixel = f"{EMAIL_CONFIG['tracking_host']}/track_open/{unique_id}?recipient={recipient}&report={yesterday}"
+        # Tracking pixel URL for email opens
+        tracking_pixel = f"{EMAIL_CONFIG['tracking_host']}/track_open/{unique_id}?recipient={EMAIL_CONFIG['to']}&report={yesterday}"
 
-            # Optional PDF download link for click tracking
-            download_link = f"{EMAIL_CONFIG['tracking_host']}/download/{unique_id}?recipient={recipient}&report={yesterday}"
+        # Optional PDF download link for click tracking
+        download_link = f"{EMAIL_CONFIG['tracking_host']}/download/{unique_id}?recipient={EMAIL_CONFIG['to']}&report={yesterday}"
 
-            # Email Body
-            html_body = f"""
-            <p>Dear Team,</p>
-            <p>Please find attached the daily sales report for {yesterday}.</p>
-            <p><a href="{download_link}">Download Report</a></p>
-            <img src="{tracking_pixel}" width="1" height="1" style="display:none;">
-            <p>Best regards,<br>Automated Reporting System</p>
-            """
-            msg.attach(MIMEText(html_body, 'html'))
+        # Email Body
+        html_body = f"""
+        <p>Dear Team,</p>
+        <p>Please find attached the daily sales report for {yesterday}.</p>
+        <img src="{tracking_pixel}" width="1" height="1" style="display:none;">
+        <p>Best regards,<br>Automated Reporting System</p>
+        """
+        msg.attach(MIMEText(html_body, 'html'))
 
-            # Attach PDF
-            with open(file_path, "rb") as attachment:
-                part = MIMEBase('application', 'octet-stream')
-                part.set_payload(attachment.read())
-            encoders.encode_base64(part)
-            part.add_header('Content-Disposition', f'attachment; filename={os.path.basename(file_path)}')
-            msg.attach(part)
+        # Attach PDF
+        with open(file_path, "rb") as attachment:
+            part = MIMEBase('application', 'octet-stream')
+            part.set_payload(attachment.read())
+        encoders.encode_base64(part)
+        part.add_header('Content-Disposition', f'attachment; filename={os.path.basename(file_path)}')
+        msg.attach(part)
 
-            # Server Config
-            server = smtplib.SMTP(EMAIL_CONFIG['smtp_server'], EMAIL_CONFIG['smtp_port'])
-            server.starttls()
-            server.login(EMAIL_CONFIG['sender_email'], EMAIL_CONFIG['sender_password'])
-            server.sendmail(EMAIL_CONFIG['sender_email'], recipient, msg.as_string())
-            server.quit()
+        # Send to all recipients (TO + CC)
+        all_recipients = [EMAIL_CONFIG['to']] + EMAIL_CONFIG['cc_recipients']
+        
+        # Server Config
+        server = smtplib.SMTP(EMAIL_CONFIG['smtp_server'], EMAIL_CONFIG['smtp_port'])
+        server.starttls()
+        server.login(EMAIL_CONFIG['sender_email'], EMAIL_CONFIG['sender_password'])
+        server.sendmail(EMAIL_CONFIG['sender_email'], all_recipients, msg.as_string())
+        server.quit()
 
-            print(f"Email sent to {recipient}")
+        print(f"Email sent to {EMAIL_CONFIG['to']} with CC to {len(EMAIL_CONFIG['cc_recipients'])} recipients")
 
-            log_event(recipient, yesterday, "sent")
+        # Log events for tracking
+        log_event(EMAIL_CONFIG['to'], yesterday, "sent")
+        for cc_recipient in EMAIL_CONFIG['cc_recipients']:
+            log_event(cc_recipient, yesterday, "sent_cc")
 
         return True
 
