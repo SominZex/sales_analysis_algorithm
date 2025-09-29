@@ -1,6 +1,6 @@
 import pandas as pd
 from connector import get_db_connection
-from queries.trend import get_monthly_trend_arrow
+from trend import get_monthly_trend_arrow
 from monthly_query.date_utils import CURRENT_MONTH, PREVIOUS_TWO_MONTHS
 
 
@@ -11,41 +11,41 @@ def fetch_subcategory_data_monthly():
     query = """
     WITH monthly_sales AS (
         SELECT 
-            subCategoryOf,
-            SUM(totalProductPrice) AS total_sales
-        FROM sales_data
-        WHERE DATE_FORMAT(orderDate, '%%Y-%%m') = %(current_month)s
-        GROUP BY subCategoryOf
+            "subCategoryOf",
+            SUM("totalProductPrice") AS total_sales
+        FROM billing_data
+        WHERE TO_CHAR("orderDate", 'YYYY-MM') = %(current_month)s
+        GROUP BY "subCategoryOf"
     ),
     previous_two_months AS (
         SELECT 
-            subCategoryOf,
-            SUM(totalProductPrice) AS total_sales
-        FROM sales_data
-        WHERE DATE_FORMAT(orderDate, '%%Y-%%m') IN %(previous_two_months)s
-        GROUP BY subCategoryOf
+            "subCategoryOf",
+            SUM("totalProductPrice") AS total_sales
+        FROM billing_data
+        WHERE TO_CHAR("orderDate", 'YYYY-MM') = ANY(%(previous_two_months)s)
+        GROUP BY "subCategoryOf"
     )
     SELECT 
-        COALESCE(m.subCategoryOf, p.subCategoryOf) AS subCategoryOf,
+        COALESCE(m."subCategoryOf", p."subCategoryOf") AS "subCategoryOf",
         COALESCE(m.total_sales, 0) AS total_sales,
         COALESCE(p.total_sales / 2, 0) AS avg_sales_previous_two_months
     FROM monthly_sales m
-    LEFT JOIN previous_two_months p ON m.subCategoryOf = p.subCategoryOf
+    LEFT JOIN previous_two_months p ON m."subCategoryOf" = p."subCategoryOf"
     
     UNION
     
     SELECT 
-        p.subCategoryOf,
+        p."subCategoryOf",
         0 AS total_sales,
         p.total_sales / 2 AS avg_sales_previous_two_months
     FROM previous_two_months p
-    LEFT JOIN monthly_sales m ON p.subCategoryOf = m.subCategoryOf
-    WHERE m.subCategoryOf IS NULL
+    LEFT JOIN monthly_sales m ON p."subCategoryOf" = m."subCategoryOf"
+    WHERE m."subCategoryOf" IS NULL
     
     ORDER BY total_sales DESC;
     """ 
 
-    df = pd.read_sql(query, engine, params={'current_month': CURRENT_MONTH, 'previous_two_months': tuple(PREVIOUS_TWO_MONTHS)})
+    df = pd.read_sql(query, engine, params={'current_month': CURRENT_MONTH, 'previous_two_months': PREVIOUS_TWO_MONTHS})
     engine.dispose()
 
     if df.empty:

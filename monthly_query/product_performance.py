@@ -1,6 +1,6 @@
 import pandas as pd
 from connector import get_db_connection
-from queries.trend import get_monthly_trend_arrow
+from trend import get_monthly_trend_arrow
 from monthly_query.date_utils import CURRENT_MONTH, PREVIOUS_TWO_MONTHS
 
 def fetch_product_data_monthly():
@@ -9,21 +9,21 @@ def fetch_product_data_monthly():
 
     # Fetch total sales and quantity for the current month
     query_current_month = """
-        SELECT productName, SUM(totalProductPrice) AS total_sales, SUM(quantity) AS total_quantity
-        FROM sales_data
-        WHERE DATE_FORMAT(orderDate, '%%Y-%%m') = %(current_month)s
-        GROUP BY productName;
+        SELECT "productName", SUM("totalProductPrice") AS total_sales, SUM("quantity") AS total_quantity
+        FROM billing_data
+        WHERE TO_CHAR("orderDate", 'YYYY-MM') = %(current_month)s
+        GROUP BY "productName";
     """
     current_month_df = pd.read_sql(query_current_month, engine, params={'current_month': CURRENT_MONTH})
 
     # Fetch total sales and quantity for the previous two months
     query_previous_months = """
-        SELECT productName, SUM(totalProductPrice) AS total_sales, SUM(quantity) AS total_quantity
-        FROM sales_data
-        WHERE DATE_FORMAT(orderDate, '%%Y-%%m') IN %(previous_two_months)s
-        GROUP BY productName;
+        SELECT "productName", SUM("totalProductPrice") AS total_sales, SUM("quantity") AS total_quantity
+        FROM billing_data
+        WHERE TO_CHAR("orderDate", 'YYYY-MM') = ANY(%(previous_two_months)s)
+        GROUP BY "productName";
     """
-    previous_months_df = pd.read_sql(query_previous_months, engine, params={'previous_two_months': tuple(PREVIOUS_TWO_MONTHS)})
+    previous_months_df = pd.read_sql(query_previous_months, engine, params={'previous_two_months': PREVIOUS_TWO_MONTHS})
 
     # Calculate average sales and quantity for the previous two months
     avg_previous_months = previous_months_df.groupby('productName').agg(

@@ -1,6 +1,6 @@
 import pandas as pd
 from connector import get_db_connection
-from queries.trend import get_monthly_trend_arrow  
+from trend import get_monthly_trend_arrow  
 from monthly_query.date_utils import CURRENT_MONTH, PREVIOUS_TWO_MONTHS
 
 
@@ -10,10 +10,10 @@ def fetch_monthly_sales():
 
     query_sales_current_month = """
         SELECT 
-            COUNT(DISTINCT invoice) AS unique_invoices,
-            SUM(totalProductPrice) AS total_sales
-        FROM sales_data
-        WHERE DATE_FORMAT(orderDate, '%%Y-%%m') = %(current_month)s;
+            COUNT(DISTINCT "invoice") AS unique_invoices,
+            SUM("totalProductPrice") AS total_sales
+        FROM billing_data
+        WHERE TO_CHAR("orderDate", 'YYYY-MM') = %(current_month)s;
     """
     sales_current_month_df = pd.read_sql(query_sales_current_month, engine, params={'current_month': CURRENT_MONTH})
 
@@ -22,19 +22,19 @@ def fetch_monthly_sales():
 
     # Fetch total sales for the current month
     query_sales_february = """
-        SELECT storeName, SUM(totalProductPrice) AS total_sales 
-        FROM sales_data 
-        WHERE DATE_FORMAT(orderDate, '%%Y-%%m') = %(current_month)s
-        GROUP BY storeName;
+        SELECT "storeName", SUM("totalProductPrice") AS total_sales 
+        FROM billing_data 
+        WHERE TO_CHAR("orderDate", 'YYYY-MM') = %(current_month)s
+        GROUP BY "storeName";
     """
     sales_february_df = pd.read_sql(query_sales_february, engine, params={'current_month': CURRENT_MONTH})
 
     # Fetch total sales for the previous two months
     query_sales_previous_months = """
-        SELECT storeName, SUM(totalProductPrice) AS total_sales 
-        FROM sales_data 
-        WHERE DATE_FORMAT(orderDate, '%%Y-%%m') IN %(previous_two_months)s
-        GROUP BY storeName;
+        SELECT "storeName", SUM("totalProductPrice") AS total_sales 
+        FROM billing_data 
+        WHERE TO_CHAR("orderDate", 'YYYY-MM') IN %(previous_two_months)s
+        GROUP BY "storeName";
     """
     sales_previous_months_df = pd.read_sql(query_sales_previous_months, engine, params={'previous_two_months': tuple(PREVIOUS_TWO_MONTHS)})
 

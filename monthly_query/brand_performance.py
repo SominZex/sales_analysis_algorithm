@@ -1,6 +1,6 @@
 import pandas as pd
 from connector import get_db_connection
-from queries.trend import get_monthly_trend_arrow  
+from trend import get_monthly_trend_arrow  
 from monthly_query.date_utils import CURRENT_MONTH, PREVIOUS_TWO_MONTHS
 
 def brand_sales():
@@ -11,22 +11,22 @@ def brand_sales():
 
     # Fetch total sales for February 2025
     query_sales = """
-        SELECT brandName, SUM(totalProductPrice) AS total_sales 
-        FROM sales_data 
-        WHERE DATE_FORMAT(orderDate, '%%Y-%%m') = %(current_month)s
-        GROUP BY brandName;
+        SELECT "brandName", SUM("totalProductPrice") AS total_sales 
+        FROM billing_data 
+        WHERE TO_CHAR("orderDate", 'YYYY-MM') = %(current_month)s
+        GROUP BY "brandName";
     """
     sales_df = pd.read_sql(query_sales, engine, params={'current_month': CURRENT_MONTH})
 
 
     # Fetch total sales for the previous two months (December 2024, January 2025)
     query_sales_previous_months = """
-        SELECT brandName, SUM(totalProductPrice) AS total_sales 
-        FROM sales_data 
-        WHERE DATE_FORMAT(orderDate, '%%Y-%%m') IN %(previous_two_months)s
-        GROUP BY brandName;
+        SELECT "brandName", SUM("totalProductPrice") AS total_sales 
+        FROM billing_data 
+        WHERE TO_CHAR("orderDate", 'YYYY-MM') = ANY(%(previous_two_months)s)
+        GROUP BY "brandName";
     """
-    sales_previous_months_df = pd.read_sql(query_sales_previous_months, engine, params={'previous_two_months': tuple(PREVIOUS_TWO_MONTHS)})
+    sales_previous_months_df = pd.read_sql(query_sales_previous_months, engine, params={'previous_two_months': PREVIOUS_TWO_MONTHS})
     # Calculate average sales for the previous two months by dividing by 2
     avg_sales_previous_months = sales_previous_months_df.groupby('brandName')['total_sales'].sum().reset_index()
     avg_sales_previous_months['avg_monthly_sales'] = avg_sales_previous_months['total_sales'] / 2
