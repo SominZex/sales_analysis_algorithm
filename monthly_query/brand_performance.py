@@ -11,31 +11,31 @@ def brand_sales():
 
     # Fetch total sales for February 2025
     query_sales = """
-        SELECT "brandName", SUM("totalProductPrice") AS total_sales 
-        FROM billing_data 
-        WHERE TO_CHAR("orderDate", 'YYYY-MM') = %(current_month)s
-        GROUP BY "brandName";
+        SELECT "brandname", SUM("sales") AS total_sales 
+        FROM brand_sales 
+        WHERE TO_CHAR("orderdate", 'YYYY-MM') = %(current_month)s
+        GROUP BY "brandname";
     """
     sales_df = pd.read_sql(query_sales, engine, params={'current_month': CURRENT_MONTH})
 
 
     # Fetch total sales for the previous two months (December 2024, January 2025)
     query_sales_previous_months = """
-        SELECT "brandName", SUM("totalProductPrice") AS total_sales 
-        FROM billing_data 
-        WHERE TO_CHAR("orderDate", 'YYYY-MM') = ANY(%(previous_two_months)s)
-        GROUP BY "brandName";
+        SELECT "brandname", SUM("sales") AS total_sales 
+        FROM brand_sales
+        WHERE TO_CHAR("orderdate", 'YYYY-MM') = ANY(%(previous_two_months)s)
+        GROUP BY "brandname";
     """
     sales_previous_months_df = pd.read_sql(query_sales_previous_months, engine, params={'previous_two_months': PREVIOUS_TWO_MONTHS})
     # Calculate average sales for the previous two months by dividing by 2
-    avg_sales_previous_months = sales_previous_months_df.groupby('brandName')['total_sales'].sum().reset_index()
+    avg_sales_previous_months = sales_previous_months_df.groupby('brandname')['total_sales'].sum().reset_index()
     avg_sales_previous_months['avg_monthly_sales'] = avg_sales_previous_months['total_sales'] / 2
     avg_sales_previous_months.drop(columns=['total_sales'], inplace=True)
 
     engine.dispose()
 
     # Merge current and previous sales data
-    sales_df = sales_df.merge(avg_sales_previous_months, on="brandName", how="left").fillna(0)
+    sales_df = sales_df.merge(avg_sales_previous_months, on="brandname", how="left").fillna(0)
 
     # Calculate growth trend using the specified formula
     def calculate_growth_arrow(row):
@@ -53,7 +53,7 @@ def brand_sales():
     # Prepare the final DataFrame with serial numbers
     sales_df.insert(0, "S.No", range(1, len(sales_df) + 1))
     sales_df["Sales & Trend"] = sales_df.apply(lambda row: f"{row['total_sales']:,.2f} {row['growth_arrow']}", axis=1)
-    result_df = sales_df[["S.No", "brandName", "Sales & Trend"]].rename(columns={"brandName": "Brand"})
+    result_df = sales_df[["S.No", "brandname", "Sales & Trend"]].rename(columns={"brandname": "Brand"})
 
 
     return result_df

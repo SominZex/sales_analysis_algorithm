@@ -9,24 +9,24 @@ def fetch_product_data_monthly():
 
     # Fetch total sales and quantity for the current month
     query_current_month = """
-        SELECT "productName", SUM("totalProductPrice") AS total_sales, SUM("quantity") AS total_quantity
-        FROM billing_data
-        WHERE TO_CHAR("orderDate", 'YYYY-MM') = %(current_month)s
-        GROUP BY "productName";
+        SELECT "productname", SUM("sales") AS total_sales, SUM("quantitysold") AS total_quantity
+        FROM product_sales
+        WHERE TO_CHAR("orderdate", 'YYYY-MM') = %(current_month)s
+        GROUP BY "productname";
     """
     current_month_df = pd.read_sql(query_current_month, engine, params={'current_month': CURRENT_MONTH})
 
     # Fetch total sales and quantity for the previous two months
     query_previous_months = """
-        SELECT "productName", SUM("totalProductPrice") AS total_sales, SUM("quantity") AS total_quantity
-        FROM billing_data
-        WHERE TO_CHAR("orderDate", 'YYYY-MM') = ANY(%(previous_two_months)s)
-        GROUP BY "productName";
+        SELECT "productname", SUM("sales") AS total_sales, SUM("quantitysold") AS total_quantity
+        FROM product_sales
+        WHERE TO_CHAR("orderdate", 'YYYY-MM') = ANY(%(previous_two_months)s)
+        GROUP BY "productname";
     """
     previous_months_df = pd.read_sql(query_previous_months, engine, params={'previous_two_months': PREVIOUS_TWO_MONTHS})
 
     # Calculate average sales and quantity for the previous two months
-    avg_previous_months = previous_months_df.groupby('productName').agg(
+    avg_previous_months = previous_months_df.groupby('productname').agg(
         avg_sales_previous_two_months=('total_sales', 'sum'),
         avg_quantity_previous_two_months=('total_quantity', 'sum')
     ).reset_index()
@@ -35,7 +35,7 @@ def fetch_product_data_monthly():
     engine.dispose()
 
     # Merge current and previous sales data
-    df = current_month_df.merge(avg_previous_months, on="productName", how="left").fillna(0)
+    df = current_month_df.merge(avg_previous_months, on="productname", how="left").fillna(0)
 
     # Calculate sales and quantity trends
     def calculate_growth_arrow(row):
@@ -58,7 +58,7 @@ def fetch_product_data_monthly():
     df.insert(0, "S.No", range(1, len(df) + 1))
 
     # Select and rename columns for display
-    df = df[["S.No", "productName", "sales_display", "quantity_display"]]
+    df = df[["S.No", "productname", "sales_display", "quantity_display"]]
     df.columns = ["S.No", "Product Name", "Sales", "Quantity Sold"]
 
     return df

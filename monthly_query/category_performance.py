@@ -11,36 +11,36 @@ def fetch_subcategory_data_monthly():
     query = """
     WITH monthly_sales AS (
         SELECT 
-            "subCategoryOf",
-            SUM("totalProductPrice") AS total_sales
-        FROM billing_data
-        WHERE TO_CHAR("orderDate", 'YYYY-MM') = %(current_month)s
-        GROUP BY "subCategoryOf"
+            "subcategoryof",
+            SUM("sales") AS total_sales
+        FROM category_sales
+        WHERE TO_CHAR("orderdate", 'YYYY-MM') = %(current_month)s
+        GROUP BY "subcategoryof"
     ),
     previous_two_months AS (
         SELECT 
-            "subCategoryOf",
-            SUM("totalProductPrice") AS total_sales
-        FROM billing_data
-        WHERE TO_CHAR("orderDate", 'YYYY-MM') = ANY(%(previous_two_months)s)
-        GROUP BY "subCategoryOf"
+            "subcategoryof",
+            SUM("sales") AS total_sales
+        FROM category_sales
+        WHERE TO_CHAR("orderdate", 'YYYY-MM') = ANY(%(previous_two_months)s)
+        GROUP BY "subcategoryof"
     )
     SELECT 
-        COALESCE(m."subCategoryOf", p."subCategoryOf") AS "subCategoryOf",
+        COALESCE(m."subcategoryof", p."subcategoryof") AS "subcategoryof",
         COALESCE(m.total_sales, 0) AS total_sales,
         COALESCE(p.total_sales / 2, 0) AS avg_sales_previous_two_months
     FROM monthly_sales m
-    LEFT JOIN previous_two_months p ON m."subCategoryOf" = p."subCategoryOf"
+    LEFT JOIN previous_two_months p ON m."subcategoryof" = p."subcategoryof"
     
     UNION
     
     SELECT 
-        p."subCategoryOf",
+        p."subcategoryof",
         0 AS total_sales,
         p.total_sales / 2 AS avg_sales_previous_two_months
     FROM previous_two_months p
-    LEFT JOIN monthly_sales m ON p."subCategoryOf" = m."subCategoryOf"
-    WHERE m."subCategoryOf" IS NULL
+    LEFT JOIN monthly_sales m ON p."subcategoryof" = m."subcategoryof"
+    WHERE m."subcategoryof" IS NULL
     
     ORDER BY total_sales DESC;
     """ 
@@ -53,7 +53,7 @@ def fetch_subcategory_data_monthly():
 
     # Debugging: Print the total sales and average sales for comparison
     print("Total Sales and Average Sales for Comparison:")
-    print(df[['subCategoryOf', 'total_sales', 'avg_sales_previous_two_months']])
+    print(df[['subcategoryof', 'total_sales', 'avg_sales_previous_two_months']])
 
     # Calculate trend comparison
     def calculate_growth_arrow(row):
@@ -70,7 +70,7 @@ def fetch_subcategory_data_monthly():
     df.insert(0, "S.No", df.index + 1)
 
     # Rename columns
-    df = df[["S.No", "subCategoryOf", "total_sales"]]
+    df = df[["S.No", "subcategoryof", "total_sales"]]
     df.columns = ["S.No", "Subcategory", "Sales"]
 
     return df
