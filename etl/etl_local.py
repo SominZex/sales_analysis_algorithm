@@ -27,7 +27,7 @@ BIGINT_COLUMNS = ["barcode"]
 NUMERIC_COLUMNS = ["GST", "CGSTRate", "SGSTRate", "acessAmount", "cess"]
 
 class CSVDownloader:
-    def __init__(self, base_url="https://api.thenewshop.in", username="api_username", password="api_pw"):
+    def __init__(self, base_url="https://api.thenewshop.in", username="user_name", password="pw"):
         self.base_url = base_url
         self.username = username
         self.password = password
@@ -270,7 +270,7 @@ def load_to_postgres_bulk(df: pd.DataFrame):
         print("Connecting to database...")
         conn = pymysql.connect(
             host="localhost",
-            port=3306,
+            port=3306,  # Integer, not string
             database="sales_data",
             user="root",
             password="root"
@@ -314,31 +314,50 @@ def load_to_postgres_bulk(df: pd.DataFrame):
 
 def main():
     start_time = time.time()
-    
+
+    # ✅ 1️⃣ Hardcoded date range selector (edit these two variables)
+    start_date = "2025-09-30" 
+    end_date   = "2025-09-30"
+
+    print(f"\n📅 Fetching data from {start_date} to {end_date}\n")
+
+    # ✅ 2️⃣ List of all order types
+    order_types = [
+        "pos"
+    ]
+
     downloader = CSVDownloader(username="nssomin", password="nssomin")
-    df = downloader.download_yesterday_csv(order_type="online")
-    
-    if df is not None and not df.empty:
-        download_time = time.time()
-        print(f"Download completed in {download_time - start_time:.2f} seconds")
-        
-        df = transform_data(df)
-        transform_time = time.time()
-        print(f"Transform completed in {transform_time - download_time:.2f} seconds")
-        
-        # Bulk insert into sales_data
-        load_to_postgres_bulk(df)
-        billing_insert_time = time.time()
-        print(f"Billing data load completed in {billing_insert_time - transform_time:.2f} seconds")
-        
-        # Insert aggregates into brand, store, category, product tables
-        mysql_agg_insert.load_aggregates_to_mysql(df)
-        aggregates_insert_time = time.time()
-        print(f"Aggregate inserts completed in {aggregates_insert_time - billing_insert_time:.2f} seconds")
-        
-        print(f"Total ETL execution time: {aggregates_insert_time - start_time:.2f} seconds")
-    else:
-        print("No data downloaded")
+    all_dataframes = []
+
+    # ✅ 3️⃣ Loop through each order type
+    for order_type in order_types:
+        print(f"\n🔸 Downloading {order_type} data...")
+        df_part = downloader.download_csv(
+            order_type=order_type,
+            from_date=start_date,
+            to_date=end_date
+        )
+        if df_part is not None and not df_part.empty:
+            print(f"✅ {order_type}: {len(df_part)} rows downloaded")
+            all_dataframes.append(df_part)
+        else:
+            print(f"⚠️ {order_type}: No data found for this date range")
+
+    # ✅ 4️⃣ Combine all order types
+    if not all_dataframes:
+        print("\n❌ No data downloaded for any order type.")
+        return
+
+    df = pd.concat(all_dataframes, ignore_index=True)
+    print(f"\n📊 Total combined rows: {len(df)}")
+
+    # ✅ 5️⃣ Transform & Load to DB
+    df = transform_data(df)
+    load_to_postgres_bulk(df)
+    mysql_agg_insert.load_aggregates_to_mysql(df)
+
+    end_time = time.time()
+    print(f"\n✅ Total ETL execution time: {end_time - start_time:.2f} seconds")
 
 if __name__ == "__main__":
     main()
