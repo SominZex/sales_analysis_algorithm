@@ -582,7 +582,7 @@ def get_yesterday_pdf(directory):
 
 def main():
     PDF_DIRECTORY = "/home/azureuser/azure_analysis_algorithm/reports"
-    GROUP_NAME = "test"
+    GROUP_NAME = "FOFO sales/ and query"
     yesterday = (datetime.now() - timedelta(days=1)).strftime('%Y-%m-%d')
     MESSAGE = f"Sales report of {yesterday}"
 
