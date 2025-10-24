@@ -274,6 +274,107 @@ class WhatsAppSender:
 
         return False, None
 
+    def find_attach_button(self, page, max_wait=30):
+        """
+        Robust attach button finder with extensive debugging
+        """
+        print("\n" + "="*50)
+        print("ATTACH BUTTON DETECTION - DETAILED MODE")
+        print("="*50)
+        
+        attach_selectors = [
+            # Most common
+            '[data-testid="clip"]',
+            'button[aria-label="Attach"]',
+            'span[data-icon="clip"]',
+            
+            # Alternative selectors
+            'button[title="Attach"]',
+            'div[aria-label="Attach"]',
+            'div[title="Attach"]',
+            
+            # By icon
+            'svg[data-icon="clip"]',
+            
+            # Generic footer buttons
+            'footer button',
+            'div[role="button"]',
+        ]
+        
+        start_time = time.time()
+        attempt = 0
+        
+        while time.time() - start_time < max_wait:
+            attempt += 1
+            
+            if attempt % 5 == 0:
+                elapsed = int(time.time() - start_time)
+                print(f"Still searching for attach button... ({elapsed}s / {max_wait}s)")
+                page.screenshot(path=f"attach_search_{elapsed}s.png")
+            
+            # Try each selector
+            for selector in attach_selectors:
+                try:
+                    elements = page.locator(selector)
+                    count = elements.count()
+                    
+                    if count > 0:
+                        for i in range(count):
+                            elem = elements.nth(i)
+                            
+                            # Check visibility
+                            if not elem.is_visible():
+                                continue
+                            
+                            # Get element info for debugging
+                            try:
+                                tag_name = elem.evaluate("el => el.tagName")
+                                aria_label = elem.get_attribute("aria-label") or ""
+                                title = elem.get_attribute("title") or ""
+                                data_icon = elem.get_attribute("data-icon") or ""
+                                
+                                print(f"\nFound potential attach button:")
+                                print(f"  Selector: {selector}")
+                                print(f"  Tag: {tag_name}")
+                                print(f"  Aria-label: {aria_label}")
+                                print(f"  Title: {title}")
+                                print(f"  Data-icon: {data_icon}")
+                                
+                                # Check if it looks like attach button
+                                is_attach = (
+                                    "attach" in aria_label.lower() or
+                                    "attach" in title.lower() or
+                                    "clip" in data_icon.lower() or
+                                    selector == '[data-testid="clip"]'
+                                )
+                                
+                                if is_attach:
+                                    print("  ✓ Confirmed as attach button!")
+                                    return elem
+                                    
+                            except Exception as e:
+                                print(f"  Error checking element: {e}")
+                                continue
+                                
+                except Exception as e:
+                    continue
+            
+            time.sleep(1)
+        
+        # If we get here, we failed to find it
+        print("\n❌ Could not find attach button after exhaustive search")
+        page.screenshot(path="attach_button_not_found.png")
+        
+        # Save HTML for debugging
+        try:
+            with open("attach_debug.html", "w", encoding="utf-8") as f:
+                f.write(page.content())
+            print("Page HTML saved to: attach_debug.html")
+        except:
+            pass
+        
+        return None
+
     def send_pdf_to_group(self, group_name, pdf_path, message="Sales report for today."):
         """
         Send PDF file to WhatsApp group with improved file handling and optional message/caption.
@@ -326,35 +427,52 @@ class WhatsAppSender:
                 time.sleep(5)
 
                 self.find_and_open_chat(page, group_name)
-                time.sleep(2)
+                time.sleep(3)  # Increased wait after opening chat
 
-                # Click attach button
+                # Click attach button with improved detection
                 print("Opening attach menu...")
                 page.screenshot(path="before_attach.png")
 
-                attach_selectors = [
-                    '[data-testid="clip"]',
-                    'button[title="Attach"]',
-                    'span[data-icon="clip"]',
-                    'button[aria-label="Attach"]',
-                ]
+                # Use the new robust attach button finder
+                attach_button = self.find_attach_button(page, max_wait=30)
+                
+                if not attach_button:
+                    raise Exception("Could not find attach button. Check attach_button_not_found.png and attach_debug.html")
 
-                attach_clicked = False
-                for sel in attach_selectors:
+                # Try clicking with multiple methods
+                print("Attempting to click attach button...")
+                clicked = False
+                
+                # Method 1: Regular click
+                try:
+                    attach_button.click(timeout=5000)
+                    clicked = True
+                    print("✓ Clicked attach button (regular click)")
+                except Exception as e:
+                    print(f"Regular click failed: {e}")
+                
+                # Method 2: Force click
+                if not clicked:
                     try:
-                        loc = page.locator(sel)
-                        if loc.count() > 0:
-                            loc.first.click()
-                            attach_clicked = True
-                            print(f"✓ Clicked attach: {sel}")
-                            break
-                    except Exception:
-                        continue
+                        attach_button.click(force=True, timeout=5000)
+                        clicked = True
+                        print("✓ Clicked attach button (force click)")
+                    except Exception as e:
+                        print(f"Force click failed: {e}")
+                
+                # Method 3: JavaScript click
+                if not clicked:
+                    try:
+                        attach_button.evaluate("el => el.click()")
+                        clicked = True
+                        print("✓ Clicked attach button (JavaScript click)")
+                    except Exception as e:
+                        print(f"JavaScript click failed: {e}")
+                
+                if not clicked:
+                    raise Exception("All click methods failed for attach button")
 
-                if not attach_clicked:
-                    raise Exception("Could not open attach menu")
-
-                time.sleep(2)
+                time.sleep(3)  # Increased wait for menu to appear
                 page.screenshot(path="attach_menu_opened.png")
 
                 # IMPROVED FILE UPLOAD LOGIC
@@ -565,7 +683,6 @@ class WhatsAppSender:
                 print("\nClosing browser in 5 seconds...")
                 time.sleep(5)
                 browser.close()
-
 
 
 def get_yesterday_pdf(directory):
