@@ -265,14 +265,181 @@ class WhatsAppSender:
             'span:has-text("Unsupported file")',
             'span:has-text("unsupported")',
             'span:has-text("failed")',
+            'span:has-text("couldn\'t send")',
+            'span:has-text("Error")',
         ]
 
         for selector in error_selectors:
-            if page.locator(selector).count() > 0:
-                error_text = page.locator(selector).first.inner_text()
-                return True, error_text
+            try:
+                if page.locator(selector).count() > 0:
+                    error_text = page.locator(selector).first.inner_text()
+                    return True, error_text
+            except:
+                continue
 
         return False, None
+
+    def get_initial_message_count(self, page):
+        """Get the current count of messages in the chat to detect new messages later"""
+        try:
+            # Multiple selectors for message bubbles
+            message_selectors = [
+                'div[data-testid="msg-container"]',
+                'div.message-in',
+                'div.message-out',
+                'div[role="row"]',
+            ]
+            
+            for selector in message_selectors:
+                count = page.locator(selector).count()
+                if count > 0:
+                    print(f"Initial message count: {count} (using {selector})")
+                    return count, selector
+            
+            print("⚠️ Could not determine initial message count")
+            return 0, None
+        except Exception as e:
+            print(f"⚠️ Error getting initial message count: {e}")
+            return 0, None
+
+    def verify_message_sent(self, page, pdf_filename, initial_count, message_selector, timeout=90):
+        """
+        Robustly verify that the message was actually sent to the group
+        Returns: (success, reason)
+        """
+        print("\n" + "="*60)
+        print("VERIFYING MESSAGE WAS SENT - COMPREHENSIVE CHECK")
+        print("="*60)
+        
+        start_time = time.time()
+        verification_checks = []
+        
+        while time.time() - start_time < timeout:
+            elapsed = int(time.time() - start_time)
+            
+            # Check 1: Message count increased
+            if message_selector:
+                try:
+                    current_count = page.locator(message_selector).count()
+                    if current_count > initial_count:
+                        verification_checks.append(f"✓ Message count increased ({initial_count} → {current_count})")
+                        print(verification_checks[-1])
+                except Exception as e:
+                    pass
+            
+            # Check 2: Document icon appears (most reliable for PDFs)
+            try:
+                doc_icons = page.locator('span[data-icon="document"]')
+                if doc_icons.count() > 0:
+                    # Check if it's a recent message (within last few messages)
+                    verification_checks.append(f"✓ Document icon found in chat")
+                    print(verification_checks[-1])
+            except:
+                pass
+            
+            # Check 3: PDF filename appears in chat
+            try:
+                if page.get_by_text(pdf_filename).count() > 0:
+                    verification_checks.append(f"✓ PDF filename '{pdf_filename}' found in chat")
+                    print(verification_checks[-1])
+            except:
+                pass
+            
+            # Check 4: Check for outgoing message indicators
+            try:
+                # Sent messages have specific classes/attributes
+                sent_selectors = [
+                    'div.message-out',
+                    'div[data-testid="msg-container"][class*="out"]',
+                    'span[data-icon="msg-check"]',  # Single check
+                    'span[data-icon="msg-dblcheck"]',  # Double check (delivered)
+                    'span[data-icon="msg-dblcheck-ack"]',  # Blue checks (read)
+                ]
+                
+                for selector in sent_selectors:
+                    count = page.locator(selector).count()
+                    if count > 0:
+                        verification_checks.append(f"✓ Sent message indicator found: {selector}")
+                        print(verification_checks[-1])
+                        break
+            except:
+                pass
+            
+            # Check 5: Verify dialog is closed (message sent successfully closes the dialog)
+            try:
+                dialog_selectors = [
+                    'div[role="dialog"]',
+                    'div[data-testid="media-viewer"]',
+                ]
+                dialog_still_open = False
+                for sel in dialog_selectors:
+                    if page.locator(sel).count() > 0:
+                        dialog_still_open = True
+                        break
+                
+                if not dialog_still_open and elapsed > 5:
+                    verification_checks.append("✓ Send dialog closed successfully")
+                    print(verification_checks[-1])
+            except:
+                pass
+            
+            # Check 6: Look for the actual sent message bubble with PDF
+            try:
+                # Try to find a message that contains both document icon AND is outgoing
+                outgoing_docs = page.locator('div.message-out span[data-icon="document"]')
+                if outgoing_docs.count() > 0:
+                    verification_checks.append("✓ Outgoing document message found")
+                    print(verification_checks[-1])
+            except:
+                pass
+            
+            # Check 7: Verify no error toasts
+            has_error, error_msg = self.check_for_error_toast(page)
+            if has_error:
+                print(f"\n❌ ERROR DETECTED: {error_msg}")
+                return False, f"WhatsApp error: {error_msg}"
+            
+            # Success criteria: Need at least 3 different verification checks to pass
+            if len(set(verification_checks)) >= 3:
+                print(f"\n✓ VERIFICATION PASSED ({len(set(verification_checks))} checks succeeded)")
+                time.sleep(2)  # Wait a bit more for stability
+                
+                # Final screenshot of success
+                page.screenshot(path="verification_success.png")
+                
+                # Do one final check for errors after waiting
+                time.sleep(2)
+                has_error, error_msg = self.check_for_error_toast(page)
+                if has_error:
+                    print(f"\n❌ LATE ERROR DETECTED: {error_msg}")
+                    return False, f"WhatsApp error (late): {error_msg}"
+                
+                return True, f"Verified with {len(set(verification_checks))} checks"
+            
+            # Progress logging
+            if elapsed % 10 == 0 and elapsed > 0:
+                print(f"Verification in progress... ({elapsed}s / {timeout}s) - {len(set(verification_checks))} checks passed so far")
+                page.screenshot(path=f"verification_{elapsed}s.png")
+            
+            time.sleep(2)
+        
+        # Timeout - failed verification
+        print(f"\n❌ VERIFICATION FAILED after {timeout}s")
+        print(f"Only {len(set(verification_checks))} checks passed (need 3+):")
+        for check in set(verification_checks):
+            print(f"  {check}")
+        
+        page.screenshot(path="verification_failed.png")
+        
+        # Save debug info
+        try:
+            with open("verification_failed.html", "w", encoding="utf-8") as f:
+                f.write(page.content())
+            print("Debug HTML saved to: verification_failed.html")
+        except:
+            pass
+        
+        return False, f"Insufficient verification ({len(set(verification_checks))} checks passed, need 3+)"
 
     def find_attach_button(self, page, max_wait=30):
         """
@@ -390,6 +557,7 @@ class WhatsAppSender:
 
         # Validate PDF first
         self.validate_pdf(pdf_path)
+        pdf_filename = os.path.basename(pdf_path)
 
         with sync_playwright() as p:
             print("Launching browser with saved session...")
@@ -429,11 +597,14 @@ class WhatsAppSender:
                 self.find_and_open_chat(page, group_name)
                 time.sleep(3)  # Increased wait after opening chat
 
+                # Get initial message count for verification
+                initial_count, message_selector = self.get_initial_message_count(page)
+
                 # Click attach button with improved detection
                 print("Opening attach menu...")
                 page.screenshot(path="before_attach.png")
 
-                # Use the new robust attach button finder
+                # Use the robust attach button finder
                 attach_button = self.find_attach_button(page, max_wait=30)
                 
                 if not attach_button:
@@ -557,7 +728,7 @@ class WhatsAppSender:
                 typed_message = False
                 message_selectors = [
                     # common caption / textbox selectors seen in the preview/dialog
-                    'div[role="textbox"][data-tab="10"]',          # preview caption
+                    'div[role="textbox"][data-tab="10"]',  
                     'div[contenteditable="true"][data-tab="10"]',
                     'div[contenteditable="true"][data-tab="6"]',
                     'div[role="textbox"][title="Type a message"]',
@@ -641,33 +812,35 @@ class WhatsAppSender:
                         print(f"Click attempt {attempt+1} failed, retrying... ({e})")
                         time.sleep(1)
 
-                # Wait for confirmation that message (PDF) appears in chat
-                print("Waiting for message confirmation in chat...")
-                sent_confirmed = False
-                for i in range(60):
-                    try:
-                        if page.locator('span[data-icon="document"]').count() > 0:
-                            sent_confirmed = True
-                            print("✓ PDF message confirmed in chat (document icon found).")
-                            break
-                        if page.get_by_text(os.path.basename(pdf_path)).count() > 0:
-                            sent_confirmed = True
-                            print("✓ PDF filename found in chat messages.")
-                            break
-                    except Exception:
-                        pass
-                    time.sleep(1)
+                # CRITICAL: Comprehensive verification that message was actually sent
+                print("\n" + "="*60)
+                print("STARTING COMPREHENSIVE SEND VERIFICATION")
+                print("="*60)
+                
+                verification_success, verification_reason = self.verify_message_sent(
+                    page, 
+                    pdf_filename, 
+                    initial_count, 
+                    message_selector,
+                    timeout=90
+                )
 
-                if not sent_confirmed:
-                    print("⚠️ Could not confirm PDF in chat after waiting. Check screenshots.")
+                if not verification_success:
+                    error_msg = f"Message send verification FAILED: {verification_reason}"
+                    print(f"\n❌ {error_msg}")
+                    page.screenshot(path="send_verification_failed.png")
+                    raise Exception(error_msg)
 
-                # Final checks for toasts/errors
+                # Final check for any delayed errors
+                print("\nPerforming final error check...")
+                time.sleep(3)
                 has_error, error_msg = self.check_for_error_toast(page)
                 if has_error:
-                    raise Exception(f"Send failed with error: {error_msg}")
+                    raise Exception(f"Send failed with delayed error: {error_msg}")
 
                 print("\n" + "="*60)
-                print("✅ PDF SENT SUCCESSFULLY")
+                print("✅ PDF SENT SUCCESSFULLY - VERIFIED")
+                print(f"   Verification: {verification_reason}")
                 print("="*60)
 
             except Exception as e:
@@ -675,6 +848,9 @@ class WhatsAppSender:
                 try:
                     page.screenshot(path="final_error.png")
                     print("Error screenshot: final_error.png")
+                    with open("final_error.html", "w", encoding="utf-8") as f:
+                        f.write(page.content())
+                    print("Error HTML saved: final_error.html")
                 except:
                     pass
                 raise
