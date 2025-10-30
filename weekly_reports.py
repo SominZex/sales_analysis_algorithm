@@ -8,7 +8,7 @@ from io import BytesIO
 from sqlalchemy import create_engine
 from sqlalchemy.exc import OperationalError
 
-DB_URI = "postgresql+psycopg2://postgres:root123@74.225.249.155/sales_data"
+DB_URI = "postgresql+psycopg2://<user>:<pw>@<ip>/sales_data"
 engine = create_engine(DB_URI, pool_pre_ping=True, pool_recycle=300)
 
 PDFKIT_CONFIG = pdfkit.configuration(wkhtmltopdf="/usr/bin/wkhtmltopdf")
@@ -337,5 +337,6 @@ if __name__ == "__main__":
             time.sleep(1)
         except Exception as e:
             print(f"Error generating report for {store}: {e}")
+
 
     print("\n All store reports generated successfully inside /reports/")
