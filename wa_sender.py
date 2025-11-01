@@ -52,13 +52,11 @@ class WhatsAppSender:
 
         while time.time() - start_time < timeout:
             try:
-                # Take a screenshot for debugging
                 elapsed = int(time.time() - start_time)
                 if elapsed % 10 == 0 and elapsed > 0:
                     page.screenshot(path=f"debug_loading_{elapsed}s.png")
                     print(f"Debug screenshot saved: debug_loading_{elapsed}s.png")
 
-                # Check if QR code is present
                 qr_selectors = [
                     'canvas[aria-label*="Scan"]',
                     'canvas[role="img"]',
@@ -74,7 +72,6 @@ class WhatsAppSender:
                         print("QR code screenshot saved as 'qr_code.png'")
                         print("\nWaiting for you to scan the QR code...")
 
-                        # Wait for QR to disappear
                         while page.locator(qr_sel).count() > 0:
                             time.sleep(2)
 
@@ -82,32 +79,18 @@ class WhatsAppSender:
                         time.sleep(5)
                         break
 
-                # EXPANDED selectors for loaded WhatsApp
                 loaded_selectors = [
-                    # Search box variations
                     '[data-testid="chat-list-search"]',
                     'div[contenteditable="true"][data-tab="3"]',
                     '[aria-label="Search input textbox"]',
                     'div[role="textbox"][title="Search input textbox"]',
-
-                    # Side panel
                     '#side',
                     'div[data-testid="chatlist-content"]',
-
-                    # Pane side
                     'div#pane-side',
-
-                    # Chat list
                     '[data-testid="chat-list"]',
                     'div[aria-label="Chat list"]',
-
-                    # Any chat element
                     '[data-testid="cell-frame-container"]',
-
-                    # Main app wrapper
                     'div[data-testid="app-wrapper-main"]',
-
-                    # Header with new chat button
                     'div[data-testid="chatlist-header"]',
                 ]
 
@@ -116,10 +99,9 @@ class WhatsAppSender:
                         elements = page.locator(selector)
                         count = elements.count()
                         if count > 0:
-                            # Verify it's actually visible
                             if elements.first.is_visible():
                                 print(f"✓ WhatsApp loaded successfully (found: {selector})")
-                                time.sleep(2)  # Extra stability wait
+                                time.sleep(3)  # Increased wait time
                                 return True
                     except Exception as e:
                         continue
@@ -130,7 +112,7 @@ class WhatsAppSender:
                        page.get_by_text("Status").count() > 0 or \
                        page.get_by_text("Communities").count() > 0:
                         print("✓ WhatsApp loaded (found navigation text)")
-                        time.sleep(2)
+                        time.sleep(3)
                         return True
                 except:
                     pass
@@ -173,14 +155,13 @@ class WhatsAppSender:
 
         # Wait for search box to be available with retry logic
         search_box = None
-        max_attempts = 30  # 30 seconds total
+        max_attempts = 30
         for attempt in range(max_attempts):
             for selector in search_selectors:
                 try:
                     elements = page.locator(selector)
                     if elements.count() > 0:
                         elem = elements.first
-                        # Check if it's actually visible and interactable
                         if elem.is_visible():
                             search_box = elem
                             print(f"✓ Found search box: {selector}")
@@ -200,7 +181,6 @@ class WhatsAppSender:
             page.screenshot(path="no_search_box.png")
             raise Exception("Could not find search box. Screenshot saved as 'no_search_box.png'")
 
-        # Try to click and ensure it's focused
         for click_attempt in range(3):
             try:
                 search_box.click()
@@ -282,7 +262,6 @@ class WhatsAppSender:
     def get_initial_message_count(self, page):
         """Get the current count of messages in the chat to detect new messages later"""
         try:
-            # Multiple selectors for message bubbles
             message_selectors = [
                 'div[data-testid="msg-container"]',
                 'div.message-in',
@@ -302,7 +281,7 @@ class WhatsAppSender:
             print(f"⚠️ Error getting initial message count: {e}")
             return 0, None
 
-    def verify_message_sent(self, page, pdf_filename, initial_count, message_selector, timeout=90):
+    def verify_message_sent(self, page, pdf_filename, initial_count, message_selector, timeout=120):
         """
         Robustly verify that the message was actually sent to the group
         Returns: (success, reason)
@@ -313,59 +292,76 @@ class WhatsAppSender:
         
         start_time = time.time()
         verification_checks = []
+        last_check_count = 0
+        stable_count = 0
+        
+        # Wait initial period for WhatsApp to process
+        print("Waiting initial 8 seconds for WhatsApp to process...")
+        time.sleep(8)
         
         while time.time() - start_time < timeout:
             elapsed = int(time.time() - start_time)
+            current_checks = []
             
             # Check 1: Message count increased
             if message_selector:
                 try:
                     current_count = page.locator(message_selector).count()
                     if current_count > initial_count:
-                        verification_checks.append(f"✓ Message count increased ({initial_count} → {current_count})")
-                        print(verification_checks[-1])
+                        check_msg = f"✓ Message count increased ({initial_count} → {current_count})"
+                        current_checks.append(check_msg)
+                        if check_msg not in verification_checks:
+                            verification_checks.append(check_msg)
+                            print(check_msg)
                 except Exception as e:
                     pass
             
-            # Check 2: Document icon appears (most reliable for PDFs)
+            # Check 2: Document icon in chat
             try:
                 doc_icons = page.locator('span[data-icon="document"]')
                 if doc_icons.count() > 0:
-                    # Check if it's a recent message (within last few messages)
-                    verification_checks.append(f"✓ Document icon found in chat")
-                    print(verification_checks[-1])
+                    check_msg = f"✓ Document icon found in chat"
+                    current_checks.append(check_msg)
+                    if check_msg not in verification_checks:
+                        verification_checks.append(check_msg)
+                        print(check_msg)
             except:
                 pass
             
-            # Check 3: PDF filename appears in chat
+            # Check 3: PDF filename visible
             try:
                 if page.get_by_text(pdf_filename).count() > 0:
-                    verification_checks.append(f"✓ PDF filename '{pdf_filename}' found in chat")
-                    print(verification_checks[-1])
+                    check_msg = f"✓ PDF filename '{pdf_filename}' found in chat"
+                    current_checks.append(check_msg)
+                    if check_msg not in verification_checks:
+                        verification_checks.append(check_msg)
+                        print(check_msg)
             except:
                 pass
             
-            # Check 4: Check for outgoing message indicators
+            # Check 4: Outgoing message indicators
             try:
-                # Sent messages have specific classes/attributes
                 sent_selectors = [
                     'div.message-out',
                     'div[data-testid="msg-container"][class*="out"]',
-                    'span[data-icon="msg-check"]',  # Single check
-                    'span[data-icon="msg-dblcheck"]',  # Double check (delivered)
-                    'span[data-icon="msg-dblcheck-ack"]',  # Blue checks (read)
+                    'span[data-icon="msg-check"]',
+                    'span[data-icon="msg-dblcheck"]',
+                    'span[data-icon="msg-dblcheck-ack"]',
                 ]
                 
                 for selector in sent_selectors:
                     count = page.locator(selector).count()
                     if count > 0:
-                        verification_checks.append(f"✓ Sent message indicator found: {selector}")
-                        print(verification_checks[-1])
+                        check_msg = f"✓ Sent message indicator found: {selector}"
+                        current_checks.append(check_msg)
+                        if check_msg not in verification_checks:
+                            verification_checks.append(check_msg)
+                            print(check_msg)
                         break
             except:
                 pass
             
-            # Check 5: Verify dialog is closed (message sent successfully closes the dialog)
+            # Check 5: Dialog closed
             try:
                 dialog_selectors = [
                     'div[role="dialog"]',
@@ -377,61 +373,83 @@ class WhatsAppSender:
                         dialog_still_open = True
                         break
                 
-                if not dialog_still_open and elapsed > 5:
-                    verification_checks.append("✓ Send dialog closed successfully")
-                    print(verification_checks[-1])
+                if not dialog_still_open and elapsed > 8:
+                    check_msg = "✓ Send dialog closed successfully"
+                    current_checks.append(check_msg)
+                    if check_msg not in verification_checks:
+                        verification_checks.append(check_msg)
+                        print(check_msg)
             except:
                 pass
             
-            # Check 6: Look for the actual sent message bubble with PDF
+            # Check 6: Outgoing document message
             try:
-                # Try to find a message that contains both document icon AND is outgoing
                 outgoing_docs = page.locator('div.message-out span[data-icon="document"]')
                 if outgoing_docs.count() > 0:
-                    verification_checks.append("✓ Outgoing document message found")
-                    print(verification_checks[-1])
+                    check_msg = "✓ Outgoing document message found"
+                    current_checks.append(check_msg)
+                    if check_msg not in verification_checks:
+                        verification_checks.append(check_msg)
+                        print(check_msg)
             except:
                 pass
             
-            # Check 7: Verify no error toasts
+            # Check for errors
             has_error, error_msg = self.check_for_error_toast(page)
             if has_error:
                 print(f"\n❌ ERROR DETECTED: {error_msg}")
                 return False, f"WhatsApp error: {error_msg}"
             
-            # Success criteria: Need at least 3 different verification checks to pass
-            if len(set(verification_checks)) >= 3:
-                print(f"\n✓ VERIFICATION PASSED ({len(set(verification_checks))} checks succeeded)")
-                time.sleep(2)  # Wait a bit more for stability
-                
-                # Final screenshot of success
-                page.screenshot(path="verification_success.png")
-                
-                # Do one final check for errors after waiting
-                time.sleep(2)
-                has_error, error_msg = self.check_for_error_toast(page)
-                if has_error:
-                    print(f"\n❌ LATE ERROR DETECTED: {error_msg}")
-                    return False, f"WhatsApp error (late): {error_msg}"
-                
-                return True, f"Verified with {len(set(verification_checks))} checks"
+            # NEW: Stability check - same number of checks for 3 consecutive iterations
+            current_check_count = len(set(current_checks))
+            if current_check_count == last_check_count and current_check_count >= 3:
+                stable_count += 1
+                if stable_count >= 3:  # Stable for 3 iterations (6 seconds)
+                    print(f"\n✓ VERIFICATION STABLE ({current_check_count} checks, stable for {stable_count} iterations)")
+                    break
+            else:
+                stable_count = 0
             
-            # Progress logging
+            last_check_count = current_check_count
+            
+            # Success criteria: Need at least 3 different verification checks
+            unique_checks = len(set(verification_checks))
+            if unique_checks >= 3 and elapsed > 10:  # At least 10 seconds elapsed
+                if stable_count >= 2:  # Reasonably stable
+                    print(f"\n✓ VERIFICATION PASSED ({unique_checks} checks succeeded)")
+                    time.sleep(3)  # Extra wait for stability
+                    
+                    page.screenshot(path="verification_success.png")
+                    
+                    # Final error check
+                    time.sleep(2)
+                    has_error, error_msg = self.check_for_error_toast(page)
+                    if has_error:
+                        print(f"\n❌ LATE ERROR DETECTED: {error_msg}")
+                        return False, f"WhatsApp error (late): {error_msg}"
+                    
+                    return True, f"Verified with {unique_checks} checks"
+            
             if elapsed % 10 == 0 and elapsed > 0:
-                print(f"Verification in progress... ({elapsed}s / {timeout}s) - {len(set(verification_checks))} checks passed so far")
+                print(f"Verification in progress... ({elapsed}s / {timeout}s) - {unique_checks} checks passed, stable: {stable_count}")
                 page.screenshot(path=f"verification_{elapsed}s.png")
             
             time.sleep(2)
         
-        # Timeout - failed verification
+        # Final assessment
+        unique_checks = len(set(verification_checks))
+        if unique_checks >= 3:
+            print(f"\n✓ VERIFICATION PASSED at timeout ({unique_checks} checks succeeded)")
+            page.screenshot(path="verification_success_timeout.png")
+            return True, f"Verified with {unique_checks} checks (at timeout)"
+        
         print(f"\n❌ VERIFICATION FAILED after {timeout}s")
-        print(f"Only {len(set(verification_checks))} checks passed (need 3+):")
+        print(f"Only {unique_checks} checks passed (need 3+):")
         for check in set(verification_checks):
             print(f"  {check}")
         
         page.screenshot(path="verification_failed.png")
         
-        # Save debug info
         try:
             with open("verification_failed.html", "w", encoding="utf-8") as f:
                 f.write(page.content())
@@ -439,7 +457,7 @@ class WhatsAppSender:
         except:
             pass
         
-        return False, f"Insufficient verification ({len(set(verification_checks))} checks passed, need 3+)"
+        return False, f"Insufficient verification ({unique_checks} checks passed, need 3+)"
 
     def find_attach_button(self, page, max_wait=30):
         """
@@ -450,20 +468,13 @@ class WhatsAppSender:
         print("="*50)
         
         attach_selectors = [
-            # Most common
             '[data-testid="clip"]',
             'button[aria-label="Attach"]',
             'span[data-icon="clip"]',
-            
-            # Alternative selectors
             'button[title="Attach"]',
             'div[aria-label="Attach"]',
             'div[title="Attach"]',
-            
-            # By icon
             'svg[data-icon="clip"]',
-            
-            # Generic footer buttons
             'footer button',
             'div[role="button"]',
         ]
@@ -479,7 +490,6 @@ class WhatsAppSender:
                 print(f"Still searching for attach button... ({elapsed}s / {max_wait}s)")
                 page.screenshot(path=f"attach_search_{elapsed}s.png")
             
-            # Try each selector
             for selector in attach_selectors:
                 try:
                     elements = page.locator(selector)
@@ -489,11 +499,9 @@ class WhatsAppSender:
                         for i in range(count):
                             elem = elements.nth(i)
                             
-                            # Check visibility
                             if not elem.is_visible():
                                 continue
                             
-                            # Get element info for debugging
                             try:
                                 tag_name = elem.evaluate("el => el.tagName")
                                 aria_label = elem.get_attribute("aria-label") or ""
@@ -507,7 +515,6 @@ class WhatsAppSender:
                                 print(f"  Title: {title}")
                                 print(f"  Data-icon: {data_icon}")
                                 
-                                # Check if it looks like attach button
                                 is_attach = (
                                     "attach" in aria_label.lower() or
                                     "attach" in title.lower() or
@@ -532,7 +539,6 @@ class WhatsAppSender:
         print("\n❌ Could not find attach button after exhaustive search")
         page.screenshot(path="attach_button_not_found.png")
         
-        # Save HTML for debugging
         try:
             with open("attach_debug.html", "w", encoding="utf-8") as f:
                 f.write(page.content())
@@ -553,9 +559,9 @@ class WhatsAppSender:
         """
         print("\n" + "="*60)
         print("Starting WhatsApp PDF Sender")
+        print(f"Timestamp: {datetime.now().strftime('%Y-%m-%d %H:%M:%S')}")
         print("="*60)
 
-        # Validate PDF first
         self.validate_pdf(pdf_path)
         pdf_filename = os.path.basename(pdf_path)
 
@@ -572,8 +578,10 @@ class WhatsAppSender:
                     '--disable-dev-shm-usage',
                     '--disable-web-security',
                     '--disable-features=IsolateOrigins,site-per-process',
+                    '--disable-gpu',  # Added for headless stability
+                    '--window-size=1280,720',
                 ],
-                slow_mo=100,
+                slow_mo=150,  # Increased from 100 for better stability
             )
 
             page = browser.pages[0] if browser.pages else browser.new_page()
@@ -590,31 +598,25 @@ class WhatsAppSender:
                 if not self.wait_for_whatsapp_load(page):
                     raise Exception("WhatsApp failed to load. Check debug screenshots and timeout_page.html")
 
-                # Extra wait to ensure all UI elements are fully loaded and interactive
                 print("Waiting for UI elements to stabilize...")
                 time.sleep(5)
 
                 self.find_and_open_chat(page, group_name)
-                time.sleep(3)  # Increased wait after opening chat
+                time.sleep(3)
 
-                # Get initial message count for verification
                 initial_count, message_selector = self.get_initial_message_count(page)
 
-                # Click attach button with improved detection
                 print("Opening attach menu...")
                 page.screenshot(path="before_attach.png")
 
-                # Use the robust attach button finder
                 attach_button = self.find_attach_button(page, max_wait=30)
                 
                 if not attach_button:
                     raise Exception("Could not find attach button. Check attach_button_not_found.png and attach_debug.html")
 
-                # Try clicking with multiple methods
                 print("Attempting to click attach button...")
                 clicked = False
                 
-                # Method 1: Regular click
                 try:
                     attach_button.click(timeout=5000)
                     clicked = True
@@ -622,7 +624,6 @@ class WhatsAppSender:
                 except Exception as e:
                     print(f"Regular click failed: {e}")
                 
-                # Method 2: Force click
                 if not clicked:
                     try:
                         attach_button.click(force=True, timeout=5000)
@@ -630,8 +631,7 @@ class WhatsAppSender:
                         print("✓ Clicked attach button (force click)")
                     except Exception as e:
                         print(f"Force click failed: {e}")
-                
-                # Method 3: JavaScript click
+
                 if not clicked:
                     try:
                         attach_button.evaluate("el => el.click()")
@@ -643,10 +643,9 @@ class WhatsAppSender:
                 if not clicked:
                     raise Exception("All click methods failed for attach button")
 
-                time.sleep(3)  # Increased wait for menu to appear
+                time.sleep(3)
                 page.screenshot(path="attach_menu_opened.png")
 
-                # IMPROVED FILE UPLOAD LOGIC
                 print("Starting file upload process...")
                 abs_path = os.path.abspath(pdf_path)
                 print(f"Will upload: {abs_path}")
@@ -671,16 +670,13 @@ class WhatsAppSender:
                             continue
 
                 if not upload_success:
-                    # Method 2: file chooser
                     print("Trying file chooser method...")
                     try:
                         with page.expect_file_chooser(timeout=10000) as fc_info:
-                            # document button candidate
                             doc_button = page.locator('li[data-testid="mi-attach-document"]')
                             if doc_button.count() > 0:
                                 doc_button.first.click()
                             else:
-                                # fallback - often the second menu item is documents
                                 page.locator('li[role="button"]').nth(1).click()
                         file_chooser = fc_info.value
                         file_chooser.set_files(abs_path)
@@ -692,16 +688,13 @@ class WhatsAppSender:
                 if not upload_success:
                     raise Exception("All file upload methods failed")
 
-                # Wait for WhatsApp to process the file and show preview dialog
-                print("Waiting for WhatsApp to process the file (this may take a moment)...")
-                time.sleep(5)
+                print("Waiting for WhatsApp to process the file...")
+                time.sleep(7)  # Increased from 5
                 page.screenshot(path="after_file_upload.png")
 
-                # Wait longer for file preview dialog UI to appear
                 print("Waiting for file preview dialog...")
                 time.sleep(5)
 
-                # Detect dialog open
                 dialog_selectors = [
                     'div[role="dialog"]',
                     'div[data-testid="media-viewer"]',
@@ -722,13 +715,9 @@ class WhatsAppSender:
                     print("⚠️  WARNING: Dialog might not be open. Proceeding to try typing message anyway.")
                     page.screenshot(path="dialog_closed.png")
 
-                # ------------------------------
-                # Insert the message/caption here
-                # ------------------------------
                 typed_message = False
                 message_selectors = [
-                    # common caption / textbox selectors seen in the preview/dialog
-                    'div[role="textbox"][data-tab="10"]',  
+                    'div[role="textbox"][data-tab="10"]',
                     'div[contenteditable="true"][data-tab="10"]',
                     'div[contenteditable="true"][data-tab="6"]',
                     'div[role="textbox"][title="Type a message"]',
@@ -743,8 +732,8 @@ class WhatsAppSender:
                         if loc.count() > 0 and loc.first.is_visible():
                             try:
                                 loc.first.click()
-                                time.sleep(0.2)
-                                loc.first.type(message)
+                                time.sleep(0.3)
+                                loc.first.type(message, delay=50)
                                 typed_message = True
                                 print(f"✓ Typed message using selector: {sel}")
                                 break
@@ -755,21 +744,18 @@ class WhatsAppSender:
                         continue
 
                 if not typed_message:
-                    # Fallback: try to focus the page and type via keyboard
                     try:
-                        # attempt to focus the active element (dialog) then type
-                        page.keyboard.type(message)
+                        page.keyboard.type(message, delay=50)
                         typed_message = True
-                        print("✓ Typed message using keyboard fallback (no specific selector).")
+                        print("✓ Typed message using keyboard fallback.")
                     except Exception as e:
-                        print(f"⚠️ Failed to type message using fallback: {e}")
+                        print(f"⚠️ Failed to type message: {e}")
 
                 if not typed_message:
-                    print("⚠️ Could not attach message/caption to the PDF. Proceeding without message.")
+                    print("⚠️ Could not attach message. Proceeding without message.")
 
-                # ------------------------------
-                # Continue with send-button detection & send
-                # ------------------------------
+                time.sleep(2)  # Extra wait after typing
+
                 print("Looking for send button...")
                 send_selectors = [
                     '[data-testid="send"]',
@@ -779,7 +765,7 @@ class WhatsAppSender:
                 ]
 
                 send_button = None
-                for _ in range(120):  # up to ~60s
+                for wait_attempt in range(120):
                     for sel in send_selectors:
                         try:
                             loc = page.locator(sel)
@@ -812,7 +798,7 @@ class WhatsAppSender:
                         print(f"Click attempt {attempt+1} failed, retrying... ({e})")
                         time.sleep(1)
 
-                # CRITICAL: Comprehensive verification that message was actually sent
+                # CRITICAL: Comprehensive verification with longer timeout
                 print("\n" + "="*60)
                 print("STARTING COMPREHENSIVE SEND VERIFICATION")
                 print("="*60)
@@ -822,7 +808,7 @@ class WhatsAppSender:
                     pdf_filename, 
                     initial_count, 
                     message_selector,
-                    timeout=90
+                    timeout=120  # Increased from 90
                 )
 
                 if not verification_success:
@@ -841,10 +827,12 @@ class WhatsAppSender:
                 print("\n" + "="*60)
                 print("✅ PDF SENT SUCCESSFULLY - VERIFIED")
                 print(f"   Verification: {verification_reason}")
+                print(f"   Timestamp: {datetime.now().strftime('%Y-%m-%d %H:%M:%S')}")
                 print("="*60)
 
             except Exception as e:
                 print(f"\n❌ ERROR: {e}")
+                print(f"Timestamp: {datetime.now().strftime('%Y-%m-%d %H:%M:%S')}")
                 try:
                     page.screenshot(path="final_error.png")
                     print("Error screenshot: final_error.png")
@@ -860,7 +848,6 @@ class WhatsAppSender:
                 time.sleep(5)
                 browser.close()
 
-
 def get_yesterday_pdf(directory):
     """Get yesterday's PDF report"""
     yesterday = (datetime.now() - timedelta(days=1)).strftime('%Y-%m-%d')
@@ -872,25 +859,33 @@ def get_yesterday_pdf(directory):
 
     return pdf_path
 
-
 def main():
     PDF_DIRECTORY = "/home/azureuser/azure_analysis_algorithm/reports"
     GROUP_NAME = "FOFO sales/ and query"
     yesterday = (datetime.now() - timedelta(days=1)).strftime('%Y-%m-%d')
     MESSAGE = f"Sales report of {yesterday}"
 
+    print("="*60)
+    print("WhatsApp PDF Sender - Automated Run")
+    print(f"Started at: {datetime.now().strftime('%Y-%m-%d %H:%M:%S')}")
+    print("="*60)
+
     try:
         yesterday_pdf = get_yesterday_pdf(PDF_DIRECTORY)
         print(f"✓ Yesterday's PDF found: {yesterday_pdf}")
 
         sender = WhatsAppSender()
-        # pass message explicitly (optional)
         sender.send_pdf_to_group(GROUP_NAME, yesterday_pdf, message=MESSAGE)
+        
+        print("\n" + "="*60)
+        print("✅ SCRIPT COMPLETED SUCCESSFULLY")
+        print(f"Finished at: {datetime.now().strftime('%Y-%m-%d %H:%M:%S')}")
+        print("="*60)
 
     except Exception as e:
-        print(f"\n❌ FAILED: {str(e)}")
+        print(f"\n❌ SCRIPT FAILED: {str(e)}")
+        print(f"Failed at: {datetime.now().strftime('%Y-%m-%d %H:%M:%S')}")
         raise
-
 
 if __name__ == "__main__":
     main()

@@ -8,7 +8,7 @@ from io import BytesIO
 from sqlalchemy import create_engine
 from sqlalchemy.exc import OperationalError
 
-DB_URI = "postgresql+psycopg2://<user>:<pw>@<ip>/sales_data"
+DB_URI = "postgresql+psycopg2://<user>:<Pasword>@<server id>/<db>"
 engine = create_engine(DB_URI, pool_pre_ping=True, pool_recycle=300)
 
 PDFKIT_CONFIG = pdfkit.configuration(wkhtmltopdf="/usr/bin/wkhtmltopdf")
@@ -27,7 +27,6 @@ def safe_read_sql(query, params=None, retries=3, delay=3):
             print(f"⚠️ Unexpected error (attempt {attempt+1}/{retries}): {e}")
             time.sleep(delay)
     raise RuntimeError("❌ Query failed after multiple retries.")
-
 
 def get_unique_stores():
     """Fetch all unique store names"""
@@ -95,6 +94,7 @@ def generate_store_report(store_name):
         week_start_str = week_start.strftime('%d %b %Y')
         week_end_str = week_end.strftime('%d %b %Y')
     
+    # === Get Previous 2 Weeks Average and Current Week Sales ===
     comparison_query = """
         WITH latest_date AS (
             SELECT MAX("orderDate")::date AS max_date
@@ -215,12 +215,11 @@ def generate_store_report(store_name):
         LIMIT 100;
     """
 
-    # Fetch data 
+    # Fetch data
     brand_df = safe_read_sql(brand_query, params=(store_name, store_name))
     category_df = safe_read_sql(category_query, params=(store_name, store_name))
     product_df = safe_read_sql(product_query, params=(store_name, store_name))
 
-    # Calculate total weekly sales
     total_sales_query = """
         WITH latest_date AS (
             SELECT MAX("orderDate")::date AS max_date
@@ -237,12 +236,12 @@ def generate_store_report(store_name):
     total_sales_df = safe_read_sql(total_sales_query, params=(store_name, store_name))
     total_weekly_sales = float(total_sales_df["total_weekly_sales"].iloc[0]) if not total_sales_df.empty and total_sales_df["total_weekly_sales"].iloc[0] is not None else 0.0
 
-    # Charts
+    # --- Charts ---
     brand_chart = plot_chart(brand_df, "brandName", "total_sales", "Top 10 Brands by Sales")
     category_chart = plot_chart(category_df, "categoryName", "total_sales", "Top 10 Categories by Sales")
     product_chart = plot_chart(product_df, "productName", "total_sales", "Top 10 Products by Sales")
 
-    # HTML temp
+    # --- HTML Template
     html_template = f"""
     <html>
     <head>
@@ -253,11 +252,20 @@ def generate_store_report(store_name):
                 font-family: 'Segoe UI', sans-serif;
                 margin: 20px;
                 background-color: #f6f8fa;
+                position: relative;
+            }}
+            .logo {{
+                position: absolute;
+                top: 40px;
+                right: 20px;
+                width: 100px;
+                height: auto;
             }}
             h1 {{
                 text-align: center;
                 color: #333;
                 margin-bottom: 10px;
+                padding-top: 0px;
             }}
             h2 {{
                 text-align: center;
@@ -300,6 +308,7 @@ def generate_store_report(store_name):
         </style>
     </head>
     <body>
+        <img src="file:///home/azureuser/azure_analysis_algorithm/tns.png" class="logo" alt="Company Logo">
         <h1>📊 Weekly Store Report – {store_name}</h1>
         <div class="date-range">Week: {week_start_str} to {week_end_str}</div>
         <h2>Total Weekly Sales: ₹{total_weekly_sales:,.2f}</h2>
@@ -321,8 +330,8 @@ def generate_store_report(store_name):
     """
 
     # Save PDF
-    os.makedirs("reports", exist_ok=True)
-    pdf_path = os.path.join("reports", f"{store_name.replace(' ', '_')}_weekly_report.pdf")
+    os.makedirs("store_reports", exist_ok=True)
+    pdf_path = os.path.join("store_reports", f"{store_name.replace(' ', '_')}_weekly_report.pdf")
     pdfkit.from_string(html_template, pdf_path, configuration=PDFKIT_CONFIG, options={"enable-local-file-access": ""})
     print(f"Saved {store_name} report → {pdf_path}")
 
@@ -338,5 +347,5 @@ if __name__ == "__main__":
         except Exception as e:
             print(f"Error generating report for {store}: {e}")
 
-
     print("\n All store reports generated successfully inside /reports/")
+
