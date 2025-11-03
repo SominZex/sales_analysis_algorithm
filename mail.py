@@ -9,9 +9,9 @@ from datetime import datetime
 
 SMTP_SERVER = "smtp.gmail.com"
 SMTP_PORT = 587
-SENDER_EMAIL = "sender mail"
+SENDER_EMAIL = "mail"
 SENDER_PASSWORD = "app_pw"
-CC_EMAIL = "cc mail"
+CC_EMAILS = ["cc_mail", "cc_mail", "cc_mail"]
 
 REPORTS_DIR = "/home/azureuser/azure_analysis_algorithm/store_reports"
 PARTNER_FILE = "/home/azureuser/azure_analysis_algorithm/partner.csv"
@@ -59,7 +59,7 @@ def send_email_with_attachment(to_email, subject, body, attachment_path):
         msg = MIMEMultipart()
         msg["From"] = SENDER_EMAIL
         msg["To"] = to_email
-        msg["Cc"] = CC_EMAIL
+        msg["Cc"] = ", ".join(CC_EMAILS)
         msg["Subject"] = subject
 
         msg.attach(MIMEText(body, "html"))
@@ -77,7 +77,7 @@ def send_email_with_attachment(to_email, subject, body, attachment_path):
             # Send to both TO and CC recipients
             server.send_message(msg)
 
-        print(f"Email sent successfully to {to_email} (CC: {CC_EMAIL})")
+        print(f"Email sent successfully to {to_email} (CC: {', '.join(CC_EMAILS)})")
     except Exception as e:
         print(f"Failed to send email to {to_email}: {e}")
 
