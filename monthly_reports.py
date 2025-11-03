@@ -8,7 +8,7 @@ from io import BytesIO
 from sqlalchemy import create_engine
 from sqlalchemy.exc import OperationalError
 
-DB_URI = "postgresql+psycopg2://<username>:<password>@<server IP>/<db>"
+DB_URI = "postgresql+psycopg2://username:<pw>@<server_ip>/<db>"
 engine = create_engine(DB_URI, pool_pre_ping=True, pool_recycle=300)
 
 PDFKIT_CONFIG = pdfkit.configuration(wkhtmltopdf="/usr/bin/wkhtmltopdf")
@@ -69,18 +69,22 @@ def plot_chart(df, x_col, y_col, title, top_n=10):
     return f'<img src="data:image/png;base64,{img_base64}" style="display:block;margin:auto;width:90%;max-height:500px;">'
 
 def generate_store_report(store_name):
-    """Generate monthly PDF report for one store"""
+    """Generate monthly PDF report for one store - for PREVIOUS COMPLETE MONTH"""
     
+    # Get the date range for the previous complete month
     date_range_query = """
         WITH latest_date AS (
             SELECT MAX("orderDate")::date AS max_date
             FROM "billing_data"
             WHERE "storeName" = %s
+        ),
+        prev_month AS (
+            SELECT 
+                DATE_TRUNC('month', max_date - INTERVAL '1 month')::date AS month_start,
+                (DATE_TRUNC('month', max_date) - INTERVAL '1 day')::date AS month_end
+            FROM latest_date
         )
-        SELECT 
-            DATE_TRUNC('month', max_date)::date AS month_start,
-            max_date AS month_end
-        FROM latest_date;
+        SELECT month_start, month_end FROM prev_month;
     """
     
     date_info = safe_read_sql(date_range_query, params=(store_name,))
@@ -94,7 +98,7 @@ def generate_store_report(store_name):
         month_start_str = month_start.strftime('%d %b %Y')
         month_end_str = month_end.strftime('%d %b %Y')
     
-    # === Get Previous 3 Months Average and Current Month Sales ===
+    # === Get Previous 3 Months Average and Last Complete Month Sales ===
     comparison_query = """
         WITH latest_date AS (
             SELECT MAX("orderDate")::date AS max_date
@@ -104,22 +108,22 @@ def generate_store_report(store_name):
         sales_periods AS (
             SELECT 
                 SUM(CASE 
-                    WHEN DATE_TRUNC('month', "orderDate") = DATE_TRUNC('month', (SELECT max_date FROM latest_date))
+                    WHEN DATE_TRUNC('month', "orderDate") = DATE_TRUNC('month', (SELECT max_date FROM latest_date) - INTERVAL '1 month')
                     THEN "totalProductPrice" 
                     ELSE 0 
                 END) AS current_month_sales,
                 SUM(CASE 
-                    WHEN DATE_TRUNC('month', "orderDate") = DATE_TRUNC('month', (SELECT max_date FROM latest_date)) - INTERVAL '1 month'
+                    WHEN DATE_TRUNC('month', "orderDate") = DATE_TRUNC('month', (SELECT max_date FROM latest_date) - INTERVAL '2 months')
                     THEN "totalProductPrice" 
                     ELSE 0 
                 END) AS month_1_sales,
                 SUM(CASE 
-                    WHEN DATE_TRUNC('month', "orderDate") = DATE_TRUNC('month', (SELECT max_date FROM latest_date)) - INTERVAL '2 months'
+                    WHEN DATE_TRUNC('month', "orderDate") = DATE_TRUNC('month', (SELECT max_date FROM latest_date) - INTERVAL '3 months')
                     THEN "totalProductPrice" 
                     ELSE 0 
                 END) AS month_2_sales,
                 SUM(CASE 
-                    WHEN DATE_TRUNC('month', "orderDate") = DATE_TRUNC('month', (SELECT max_date FROM latest_date)) - INTERVAL '3 months'
+                    WHEN DATE_TRUNC('month', "orderDate") = DATE_TRUNC('month', (SELECT max_date FROM latest_date) - INTERVAL '4 months')
                     THEN "totalProductPrice" 
                     ELSE 0 
                 END) AS month_3_sales
@@ -156,7 +160,7 @@ def generate_store_report(store_name):
         current_month_sales = 0.0
         comparison_text = '<div style="text-align: center; margin-top: 10px;"><span style="font-size: 18px; color: #666;">No sales data available</span></div>'
     
-    # === Queries for Current Month
+    # === Queries for Previous Complete Month
     brand_query = """
         WITH latest_date AS (
             SELECT MAX("orderDate")::date AS max_date
@@ -170,7 +174,7 @@ def generate_store_report(store_name):
             ROUND(SUM(b."totalProductPrice") / NULLIF(COUNT(DISTINCT b."invoice"), 0), 2) AS avg_order_value
         FROM "billing_data" b
         WHERE b."storeName" = %s
-          AND DATE_TRUNC('month', b."orderDate") = DATE_TRUNC('month', (SELECT max_date FROM latest_date))
+          AND DATE_TRUNC('month', b."orderDate") = DATE_TRUNC('month', (SELECT max_date FROM latest_date) - INTERVAL '1 month')
         GROUP BY b."brandName"
         ORDER BY total_sales DESC
         LIMIT 50;
@@ -189,7 +193,7 @@ def generate_store_report(store_name):
             ROUND(SUM(b."totalProductPrice") / NULLIF(COUNT(DISTINCT b."invoice"), 0), 2) AS avg_order_value
         FROM "billing_data" b
         WHERE b."storeName" = %s
-          AND DATE_TRUNC('month', b."orderDate") = DATE_TRUNC('month', (SELECT max_date FROM latest_date))
+          AND DATE_TRUNC('month', b."orderDate") = DATE_TRUNC('month', (SELECT max_date FROM latest_date) - INTERVAL '1 month')
         GROUP BY b."categoryName"
         ORDER BY total_sales DESC
         LIMIT 50;
@@ -208,7 +212,7 @@ def generate_store_report(store_name):
             ROUND(SUM(b."totalProductPrice") / NULLIF(COUNT(DISTINCT b."invoice"), 0), 2) AS avg_order_value
         FROM "billing_data" b
         WHERE b."storeName" = %s
-          AND DATE_TRUNC('month', b."orderDate") = DATE_TRUNC('month', (SELECT max_date FROM latest_date))
+          AND DATE_TRUNC('month', b."orderDate") = DATE_TRUNC('month', (SELECT max_date FROM latest_date) - INTERVAL '1 month')
         GROUP BY b."productName"
         ORDER BY total_sales DESC
         LIMIT 100;
@@ -229,7 +233,7 @@ def generate_store_report(store_name):
             ROUND(SUM("totalProductPrice")::numeric, 2) AS total_monthly_sales
         FROM "billing_data"
         WHERE "storeName" = %s
-          AND DATE_TRUNC('month', "orderDate") = DATE_TRUNC('month', (SELECT max_date FROM latest_date));
+          AND DATE_TRUNC('month', "orderDate") = DATE_TRUNC('month', (SELECT max_date FROM latest_date) - INTERVAL '1 month');
     """
     total_sales_df = safe_read_sql(total_sales_query, params=(store_name, store_name))
     total_monthly_sales = float(total_sales_df["total_monthly_sales"].iloc[0]) if not total_sales_df.empty and total_sales_df["total_monthly_sales"].iloc[0] is not None else 0.0
@@ -345,4 +349,4 @@ if __name__ == "__main__":
         except Exception as e:
             print(f"❌ Error generating report for {store}: {e}")
 
-    print("\n✅ All store reports generated successfully inside /store_reports/")
+    print("\n✅ All store reports generated successfully inside /monthly_reports/")
