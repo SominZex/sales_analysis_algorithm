@@ -9,9 +9,9 @@ from datetime import datetime
 
 SMTP_SERVER = "smtp.gmail.com"
 SMTP_PORT = 587
-SENDER_EMAIL = "mail"
+SENDER_EMAIL = "email"
 SENDER_PASSWORD = "app_pw"
-CC_EMAILS = ["cc_mail", "cc_mail", "cc_mail"]
+CC_EMAILS = ["cc_mail", "cc_mail"]
 
 REPORTS_DIR = "/home/azureuser/azure_analysis_algorithm/store_reports"
 PARTNER_FILE = "/home/azureuser/azure_analysis_algorithm/partner.csv"
@@ -80,7 +80,6 @@ def send_email_with_attachment(to_email, subject, body, attachment_path):
         print(f"Email sent successfully to {to_email} (CC: {', '.join(CC_EMAILS)})")
     except Exception as e:
         print(f"Failed to send email to {to_email}: {e}")
-
 
 def send_all_reports():
     partners_df = pd.read_csv(PARTNER_FILE)

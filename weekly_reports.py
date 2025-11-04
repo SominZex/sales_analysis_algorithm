@@ -8,7 +8,7 @@ from io import BytesIO
 from sqlalchemy import create_engine
 from sqlalchemy.exc import OperationalError
 
-DB_URI = "postgresql+psycopg2://<user>:<Pasword>@<server id>/<db>"
+DB_URI = "postgresql+psycopg2://<user>:<pw>@<server_ip>/<db>"
 engine = create_engine(DB_URI, pool_pre_ping=True, pool_recycle=300)
 
 PDFKIT_CONFIG = pdfkit.configuration(wkhtmltopdf="/usr/bin/wkhtmltopdf")
@@ -154,18 +154,25 @@ def generate_store_report(store_name):
         current_week_sales = 0.0
         comparison_text = '<div style="text-align: center; margin-top: 10px;"><span style="font-size: 18px; color: #666;">No sales data available</span></div>'
     
-    # === Queries
+    # === Queries with Contribution % instead of Average Order Value
     brand_query = """
         WITH latest_date AS (
             SELECT MAX("orderDate")::date AS max_date
             FROM "billing_data"
             WHERE "storeName" = %s
+        ),
+        total_sales AS (
+            SELECT SUM(b."totalProductPrice") AS total
+            FROM "billing_data" b
+            WHERE b."storeName" = %s
+              AND b."orderDate" > (SELECT max_date FROM latest_date) - INTERVAL '7 days'
+              AND b."orderDate" <= (SELECT max_date FROM latest_date)
         )
         SELECT 
             b."brandName",
             ROUND(SUM(b."totalProductPrice")::numeric, 2) AS total_sales,
             SUM(b."quantity") AS quantity_sold,
-            ROUND(SUM(b."totalProductPrice") / NULLIF(COUNT(DISTINCT b."invoice"), 0), 2) AS avg_order_value
+            ROUND((SUM(b."totalProductPrice") / NULLIF((SELECT total FROM total_sales), 0) * 100)::numeric, 2) AS contribution
         FROM "billing_data" b
         WHERE b."storeName" = %s
           AND b."orderDate" > (SELECT max_date FROM latest_date) - INTERVAL '7 days'
@@ -180,12 +187,19 @@ def generate_store_report(store_name):
             SELECT MAX("orderDate")::date AS max_date
             FROM "billing_data"
             WHERE "storeName" = %s
+        ),
+        total_sales AS (
+            SELECT SUM(b."totalProductPrice") AS total
+            FROM "billing_data" b
+            WHERE b."storeName" = %s
+              AND b."orderDate" > (SELECT max_date FROM latest_date) - INTERVAL '7 days'
+              AND b."orderDate" <= (SELECT max_date FROM latest_date)
         )
         SELECT 
             b."categoryName",
             ROUND(SUM(b."totalProductPrice")::numeric, 2) AS total_sales,
             SUM(b."quantity") AS quantity_sold,
-            ROUND(SUM(b."totalProductPrice") / NULLIF(COUNT(DISTINCT b."invoice"), 0), 2) AS avg_order_value
+            ROUND((SUM(b."totalProductPrice") / NULLIF((SELECT total FROM total_sales), 0) * 100)::numeric, 2) AS contribution
         FROM "billing_data" b
         WHERE b."storeName" = %s
           AND b."orderDate" > (SELECT max_date FROM latest_date) - INTERVAL '7 days'
@@ -200,12 +214,19 @@ def generate_store_report(store_name):
             SELECT MAX("orderDate")::date AS max_date
             FROM "billing_data"
             WHERE "storeName" = %s
+        ),
+        total_sales AS (
+            SELECT SUM(b."totalProductPrice") AS total
+            FROM "billing_data" b
+            WHERE b."storeName" = %s
+              AND b."orderDate" > (SELECT max_date FROM latest_date) - INTERVAL '7 days'
+              AND b."orderDate" <= (SELECT max_date FROM latest_date)
         )
         SELECT 
             b."productName",
             ROUND(SUM(b."totalProductPrice")::numeric, 2) AS total_sales,
             SUM(b."quantity") AS quantity_sold,
-            ROUND(SUM(b."totalProductPrice") / NULLIF(COUNT(DISTINCT b."invoice"), 0), 2) AS avg_order_value
+            ROUND((SUM(b."totalProductPrice") / NULLIF((SELECT total FROM total_sales), 0) * 100)::numeric, 2) AS contribution
         FROM "billing_data" b
         WHERE b."storeName" = %s
           AND b."orderDate" > (SELECT max_date FROM latest_date) - INTERVAL '7 days'
@@ -216,9 +237,17 @@ def generate_store_report(store_name):
     """
 
     # Fetch data
-    brand_df = safe_read_sql(brand_query, params=(store_name, store_name))
-    category_df = safe_read_sql(category_query, params=(store_name, store_name))
-    product_df = safe_read_sql(product_query, params=(store_name, store_name))
+    brand_df = safe_read_sql(brand_query, params=(store_name, store_name, store_name))
+    category_df = safe_read_sql(category_query, params=(store_name, store_name, store_name))
+    product_df = safe_read_sql(product_query, params=(store_name, store_name, store_name))
+    
+    # Add percentage symbol to contribution column
+    if not brand_df.empty and 'contribution' in brand_df.columns:
+        brand_df['contribution'] = brand_df['contribution'].astype(str) + '%'
+    if not category_df.empty and 'contribution' in category_df.columns:
+        category_df['contribution'] = category_df['contribution'].astype(str) + '%'
+    if not product_df.empty and 'contribution' in product_df.columns:
+        product_df['contribution'] = product_df['contribution'].astype(str) + '%'
 
     total_sales_query = """
         WITH latest_date AS (
@@ -309,7 +338,7 @@ def generate_store_report(store_name):
     </head>
     <body>
         <img src="file:///home/azureuser/azure_analysis_algorithm/tns.png" class="logo" alt="Company Logo">
-        <h1>📊 Weekly Store Report – {store_name}</h1>
+        <h1>📊 Weekly Store Report — {store_name}</h1>
         <div class="date-range">Week: {week_start_str} to {week_end_str}</div>
         <h2>Total Weekly Sales: ₹{total_weekly_sales:,.2f}</h2>
         {comparison_text}
@@ -333,7 +362,7 @@ def generate_store_report(store_name):
     os.makedirs("store_reports", exist_ok=True)
     pdf_path = os.path.join("store_reports", f"{store_name.replace(' ', '_')}_weekly_report.pdf")
     pdfkit.from_string(html_template, pdf_path, configuration=PDFKIT_CONFIG, options={"enable-local-file-access": ""})
-    print(f"Saved {store_name} report → {pdf_path}")
+    print(f"✅ Saved {store_name} report → {pdf_path}")
 
 
 if __name__ == "__main__":
@@ -345,7 +374,6 @@ if __name__ == "__main__":
             generate_store_report(store)
             time.sleep(1)
         except Exception as e:
-            print(f"Error generating report for {store}: {e}")
+            print(f"❌ Error generating report for {store}: {e}")
 
-    print("\n All store reports generated successfully inside /reports/")
-
+    print("\n✅ All store reports generated successfully inside /reports/")

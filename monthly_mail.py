@@ -5,21 +5,26 @@ from email.mime.multipart import MIMEMultipart
 from email.mime.base import MIMEBase
 from email.mime.text import MIMEText
 from email import encoders
-from datetime import datetime
+from datetime import datetime, timedelta
 
 SMTP_SERVER = "smtp.gmail.com"
 SMTP_PORT = 587
-SENDER_EMAIL = "mail"
+SENDER_EMAIL = "email"
 SENDER_PASSWORD = "app_pw"
-CC_EMAILS = ["cc_mail", "cc_mail", "cc_mail"]
+CC_EMAILS = ["cc_mail", "cc_mail"]
 
 REPORTS_DIR = "/home/azureuser/azure_analysis_algorithm/monthly_reports"
 PARTNER_FILE = "/home/azureuser/azure_analysis_algorithm/partner.csv"
 
 def create_email_body(store_name):
     """Return the HTML email body for a specific store."""
-    current_month = datetime.now().strftime("%B %Y")
-    today = datetime.now().strftime("%d %B %Y")
+    today = datetime.now()
+    today_str = today.strftime("%d %B %Y")
+    first_day_current_month = today.replace(day=1)
+    last_day_previous_month = first_day_current_month - timedelta(days=1)
+    previous_month = last_day_previous_month.strftime("%B %Y")
+
+
     return f"""
     <html>
     <body style="font-family: 'Segoe UI', Arial, sans-serif; color: #333; background-color: #f9f9f9; padding: 20px;">
@@ -33,7 +38,7 @@ def create_email_body(store_name):
 
             <h3 style="text-align: center; color: #0078D7;">{store_name}</h3>
 
-            <p>This comprehensive report covers your store's sales performance for <strong>{current_month}</strong>, including:</p>
+            <p>This comprehensive report covers your store's sales performance for <strong>{previous_month}</strong>, including:</p>
             
             <ul style="line-height: 1.8;">
                 <li>📊 Total monthly sales performance</li>
@@ -55,12 +60,12 @@ def create_email_body(store_name):
             <p><strong>Analytics & Business Insights Team</strong><br>
             <em>New Shop</em><br>
             📧 data@newshop.in<br>
-            📅 Report Generated: {today}</p>
+            📅 Report Generated: {today_str}</p>
 
             <hr style="margin-top: 25px;">
             <p style="font-size: 12px; color: #777; text-align: center;">
                 This is an automated monthly report. Please do not reply directly to this message.<br>
-                For support, contact your account manager or email data@newshop.in
+                For support, contact your account manager or email kamfranchise@newshop.in
             </p>
         </div>
     </body>
@@ -98,9 +103,14 @@ def send_email_with_attachment(to_email, subject, body, attachment_path):
 
 def send_all_reports():
     partners_df = pd.read_csv(PARTNER_FILE)
-    current_month = datetime.now().strftime("%B %Y")
+    
+    # Get previous month
+    today = datetime.now()
+    first_day_current_month = today.replace(day=1)
+    last_day_previous_month = first_day_current_month - timedelta(days=1)
+    previous_month = last_day_previous_month.strftime("%B %Y")
 
-    print(f"📧 Starting monthly report distribution for {current_month}...\n")
+    print(f"📧 Starting monthly report distribution for {previous_month}...\n")
 
     for _, row in partners_df.iterrows():
         store_name = row["storeName"]
@@ -110,7 +120,7 @@ def send_all_reports():
         pdf_path = os.path.join(REPORTS_DIR, pdf_name)
 
         if os.path.exists(pdf_path):
-            subject = f"Monthly Performance Report - {store_name} ({current_month})"
+            subject = f"Monthly Performance Report - {store_name} ({previous_month})"
             
             body = create_email_body(store_name)
             send_email_with_attachment(email, subject, body, pdf_path)
