@@ -1,3 +1,6 @@
+
+<img width="1920" height="1080" alt="Start (1)" src="https://github.com/user-attachments/assets/479dc795-e0d5-4448-b6bf-eca046ccff72" />
+
 ## Sales Performance Dashboard
 This application is a sales performance dashboard built using Dash, a Python framework for building analytical web applications. The dashboard provides insights into store, category, brand, and product sales performance over a specified date range.
 
