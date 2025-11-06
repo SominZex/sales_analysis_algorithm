@@ -53,14 +53,14 @@ Navigate to /monthly_query/date_utils.py and change the date and month range you
 
 ## Cron Setup for automation:
 ### Navigate to terminal and type "crontab -e" (linux only) then paste the folllwing cron jobs (make sure you have the necessary shell script created in the directory, .sh files are not included here):
-30 3 * * * /home/azureuser/etl/vmac/bin/python /home/azureuser/etl/etl_pip.py >> /home/azureuser/etl/etl_pip.log 2>&1
-38 3 * * * /home/azureuser/etl/vmac/bin/python /home/azureuser/etl/product_update.py >> /home/azureuser/etl/product_update.log 2>&1
-45 3 * * * /home/azureuser/azure_analysis_algorithm/run_analysis.sh
-50 4 * * * /home/azureuser/azure_analysis_algorithm/wa_sender.sh >> /home/azureuser/logs/wa_sender_cron.log 2>&1
-05 5 * * 1 /home/azureuser/azure_analysis_algorithm/run_weekly_reports.sh
-15 6 * * 1 /home/azureuser/azure_analysis_algorithm/weekly_mail.sh
-10 7 1 * * /home/azureuser/azure_analysis_algorithm/monthly_reports.sh
-02 8 1 * * /home/azureuser/azure_analysis_algorithm/monthly_mail.sh
+#### 30 3 * * * /home/azureuser/etl/vmac/bin/python /home/azureuser/etl/etl_pip.py >> /home/azureuser/etl/etl_pip.log 2>&1
+#### 38 3 * * * /home/azureuser/etl/vmac/bin/python /home/azureuser/etl/product_update.py >> /home/azureuser/etl/product_update.log 2>&1
+#### 45 3 * * * /home/azureuser/azure_analysis_algorithm/run_analysis.sh
+#### 50 4 * * * /home/azureuser/azure_analysis_algorithm/wa_sender.sh >> /home/azureuser/logs/wa_sender_cron.log 2>&1
+#### 05 5 * * 1 /home/azureuser/azure_analysis_algorithm/run_weekly_reports.sh
+#### 15 6 * * 1 /home/azureuser/azure_analysis_algorithm/weekly_mail.sh
+#### 10 7 1 * * /home/azureuser/azure_analysis_algorithm/monthly_reports.sh
+#### 02 8 1 * * /home/azureuser/azure_analysis_algorithm/monthly_mail.sh
 
 Contributing
 Contributions are welcome! Please fork the repository and submit a pull request with your changes.
