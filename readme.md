@@ -4,12 +4,22 @@
 ## Sales Performance Dashboard
 This application is a sales performance dashboard built using Dash, a Python framework for building analytical web applications. The dashboard provides insights into store, category, brand, and product sales performance over a specified date range.
 
-## Features
-Sales Data Visualization: Displays sales data for stores, categories, brands, and products.
-Date Range Selection: Users can select a start and end date to filter the sales data.
-Data Comparison: Compares the latest available sales data with the average sales from the previous 7 days.
-Performance Metrics: Shows total sales and average weekly growth percentage.
-Conditional Formatting: Highlights positive and negative growth with different colors.
+## ETL Feature: 
+#### Realtime sales data is updated through API call from the mainframe database to the sandboxDB.
+#### Necessary tables are updated daily.
+
+## Daily Sale report automation:
+#### Sales Data Visualization: Displays sales data for stores, categories, brands, and products.
+#### Data Comparison: Compares the latest available sales data with the average sales from the previous 7 days.
+#### Performance Metrics: Shows total sales and average weekly growth percentage.
+#### Conditional Formatting: Highlights positive and negative growth with different colors.
+#### Email and WhatsApp automation: Daily report is sent Via mail and shared in WhatsApp group.
+
+## Weekly Sale report automation:
+#### Weekkly sale report is run every monday to generate weekly sale report then sent Via Automated mail to the respective business partners.
+
+## Monthly Sale report Automation:
+#### Monthly sale report is automatically generated every 1st day of the month and mail automation sends the reports via mail to the respective business partners.
 
 ## Installation
 Clone the Repository:
@@ -22,30 +32,35 @@ cd sales_analysis_algorithm
 pip install -r requirements.txt
 
 
-## Run the Application: Start the Dash server by running:
-### For daily analysis
+## Run the Application:
+
+### Etl pipeline Manual Run:
+python ./etl/etl_pip.py
+
+### Table update:
+python ./etl/product_update.py
+
+### To run daily analysis Manually
 python analysis.py
 
-### For monthly analysis
-python monthly.py
+### To run Weekly anlaysis Manually
+python weekly_reports.py
 
-Navigate to /monthly_query/date_utils.py and change the date and month range you want to analyze
+### To run monthly analysis Manually
+python monthly_reports.py
 
-## Access the Dashboard: 
-Open your web browser and navigate to http://127.0.0.1:8050 to view the dashboard.
-Usage
-Selecting Date Range
-Use the date picker to select the start and end dates for the sales data you wish to analyze.
-The dashboard will automatically update to reflect the selected date range.
-Understanding the Dashboard
-Store Performance: Displays sales data split into two tables for easier viewing.
-Category Performance: Shows sales data for different categories, also split into two tables.
-Brand Performance: Provides insights into brand sales, divided into two tables.
-Product Performance: Lists product sales data, split into two tables for better readability.
-Performance Metrics
-Total Sales: Displays the total sales amount for the selected date range.
-Average Weekly Growth: Shows the percentage growth compared to the previous week's average sales. Positive growth is highlighted in green, while negative growth is highlighted in red.
-Error Handling
-If there is an error fetching data, the dashboard will display an error message and default values.
+Navigate to /monthly_query/date_utils.py and change the date and month range you want to analyze using "monthly.py"
+
+## Cron Setup for automation:
+### Navigate to terminal and type "crontab -e" (linux only) then paste the folllwing cron jobs (make sure you have the necessary shell script created in the directory, .sh files are not included here):
+30 3 * * * /home/azureuser/etl/vmac/bin/python /home/azureuser/etl/etl_pip.py >> /home/azureuser/etl/etl_pip.log 2>&1
+38 3 * * * /home/azureuser/etl/vmac/bin/python /home/azureuser/etl/product_update.py >> /home/azureuser/etl/product_update.log 2>&1
+45 3 * * * /home/azureuser/azure_analysis_algorithm/run_analysis.sh
+50 4 * * * /home/azureuser/azure_analysis_algorithm/wa_sender.sh >> /home/azureuser/logs/wa_sender_cron.log 2>&1
+05 5 * * 1 /home/azureuser/azure_analysis_algorithm/run_weekly_reports.sh
+15 6 * * 1 /home/azureuser/azure_analysis_algorithm/weekly_mail.sh
+10 7 1 * * /home/azureuser/azure_analysis_algorithm/monthly_reports.sh
+02 8 1 * * /home/azureuser/azure_analysis_algorithm/monthly_mail.sh
+
 Contributing
 Contributions are welcome! Please fork the repository and submit a pull request with your changes.
