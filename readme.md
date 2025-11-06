@@ -2,8 +2,9 @@
 <img width="1920" height="1080" alt="flowchrt" src="https://github.com/user-attachments/assets/454e4bf6-a3bc-4a28-b916-6d92e24f8a59" />
 
 
-## Sales Performance Dashboard
+## Fully Automated Sales Performance Dashboard
 This application is a sales performance dashboard. The dashboard provides Daily, Weekly and monthly insights into store, category, brand, and product sales performance over a specified date range.
+No manual execution is required to run this system if you setup the cron accordingly.
 
 ## ETL Feature: 
 #### Realtime sales data is updated through API call from the mainframe database to the sandboxDB.
