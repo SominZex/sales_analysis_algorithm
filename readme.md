@@ -18,7 +18,7 @@ No manual execution is required to run this system if you setup the cron accordi
 #### Email and WhatsApp automation: Daily report is sent Via mail and shared in WhatsApp group.
 
 ## Weekly Sale report automation:
-#### Weekkly sale report is run every monday to generate weekly sale report then sent Via Automated mail to the respective business partners.
+#### Weekly sale report is run every monday to generate weekly sale report then sent Via Automated mail to the respective business partners.
 
 ## Monthly Sale report Automation:
 #### Monthly sale report is automatically generated every 1st day of the month and mail automation sends the reports via mail to the respective business partners.
@@ -58,7 +58,7 @@ No manual execution is required to run this system if you setup the cron accordi
 ### To run monthly analysis Manually
 #### python monthly_reports.py
 
-#### NB: Navigate to /monthly_query/date_utils.py and change the date and month range you want to analyze using "python monthly.py"
+#### NB: Navigate to /monthly_query/date_utils.py and change the date and month range if you want to analyze using "python monthly.py"
 
 ## Cron Setup for automation:
 ### Navigate to terminal and type "crontab -e" (linux only) then paste the folllwing cron jobs (make sure you have the necessary shell script created in the directory, .sh files are not included here):
