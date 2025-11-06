@@ -3,7 +3,7 @@
 
 
 ## Sales Performance Dashboard
-This application is a sales performance dashboard built using Dash, a Python framework for building analytical web applications. The dashboard provides insights into store, category, brand, and product sales performance over a specified date range.
+This application is a sales performance dashboard. The dashboard provides Daily, Weekly and monthly insights into store, category, brand, and product sales performance over a specified date range.
 
 ## ETL Feature: 
 #### Realtime sales data is updated through API call from the mainframe database to the sandboxDB.
@@ -23,34 +23,41 @@ This application is a sales performance dashboard built using Dash, a Python fra
 #### Monthly sale report is automatically generated every 1st day of the month and mail automation sends the reports via mail to the respective business partners.
 
 ## Installation
-Clone the Repository:
+##### Clone the Repository:
 
-git clone https://github.com/SominZex/sales_analysis_algorithm.git
+#### git clone https://github.com/SominZex/sales_analysis_algorithm.git
 
-cd sales_analysis_algorithm
+#### cd sales_analysis_algorithm
 
-## Install Dependencies: Ensure you have Python installed, then install the required packages using:
-pip install -r requirements.txt
+## Create environment
+#### python3 -m venv env_name
+
+## Activate env
+#### source env_name/bin/activate (for MAC and Linux)
+#### env_name\Scripts\activate.bat (for windows)
+
+## Install Dependencies:
+#### pip install -r requirements.txt
 
 
 ## Run the Application:
 
 ### Etl pipeline Manual Run:
-python ./etl/etl_pip.py
+#### python ./etl/etl_pip.py
 
 ### Table update:
-python ./etl/product_update.py
+#### python ./etl/product_update.py
 
 ### To run daily analysis Manually
-python analysis.py
+#### python analysis.py
 
 ### To run Weekly anlaysis Manually
-python weekly_reports.py
+#### python weekly_reports.py
 
 ### To run monthly analysis Manually
-python monthly_reports.py
+#### python monthly_reports.py
 
-Navigate to /monthly_query/date_utils.py and change the date and month range you want to analyze using "monthly.py"
+#### NB: Navigate to /monthly_query/date_utils.py and change the date and month range you want to analyze using "python monthly.py"
 
 ## Cron Setup for automation:
 ### Navigate to terminal and type "crontab -e" (linux only) then paste the folllwing cron jobs (make sure you have the necessary shell script created in the directory, .sh files are not included here):
