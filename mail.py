@@ -9,9 +9,10 @@ from datetime import datetime
 
 SMTP_SERVER = "smtp.gmail.com"
 SMTP_PORT = 587
-SENDER_EMAIL = "email"
-SENDER_PASSWORD = "app_pw"
-CC_EMAILS = ["cc_mail", "cc_mail"]
+SENDER_EMAIL = "satpal@newshop.in"
+SENDER_PASSWORD = "outd pxir nvgc mwrp"
+CC_EMAILS = ["kamfranchise@newshop.in", "data@newshop.in"]
+BCC_EMAILS = ["mani@newshop.in"]
 
 REPORTS_DIR = "/home/azureuser/azure_analysis_algorithm/store_reports"
 PARTNER_FILE = "/home/azureuser/azure_analysis_algorithm/partner.csv"
@@ -60,6 +61,7 @@ def send_email_with_attachment(to_email, subject, body, attachment_path):
         msg["From"] = SENDER_EMAIL
         msg["To"] = to_email
         msg["Cc"] = ", ".join(CC_EMAILS)
+        msg["Bcc"] = ", ".join(BCC_EMAILS)
         msg["Subject"] = subject
 
         msg.attach(MIMEText(body, "html"))
@@ -93,7 +95,7 @@ def send_all_reports():
 
         if os.path.exists(pdf_path):
             subject = f"Weekly Store Report - {store_name}"
-            
+
             body = create_email_body(store_name)
             send_email_with_attachment(email, subject, body, pdf_path)
         else:
