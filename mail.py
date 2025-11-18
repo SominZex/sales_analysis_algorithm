@@ -9,10 +9,10 @@ from datetime import datetime
 
 SMTP_SERVER = "smtp.gmail.com"
 SMTP_PORT = 587
-SENDER_EMAIL = "satpal@newshop.in"
-SENDER_PASSWORD = "outd pxir nvgc mwrp"
-CC_EMAILS = ["kamfranchise@newshop.in", "data@newshop.in"]
-BCC_EMAILS = ["mani@newshop.in"]
+SENDER_EMAIL = "mail"
+SENDER_PASSWORD = "app_pw"
+CC_EMAILS = ["ccmail1", "ccmail2"]
+BCC_EMAILS = ["bccmail"]
 
 REPORTS_DIR = "/home/azureuser/azure_analysis_algorithm/store_reports"
 PARTNER_FILE = "/home/azureuser/azure_analysis_algorithm/partner.csv"
