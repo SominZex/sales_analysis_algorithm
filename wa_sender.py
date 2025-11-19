@@ -45,7 +45,52 @@ class WhatsAppSender:
         print(f"✓ PDF validation passed ({size/(1024*1024):.2f}MB)")
         return True
 
-    def wait_for_whatsapp_load(self, page, timeout=120):
+    def dismiss_popups(self, page):
+        """Dismiss any popups or notifications that might be blocking the UI"""
+        print("Checking for popups/notifications...")
+        
+        popup_selectors = [
+            # Notification prompts
+            'div[data-testid="popup-controls-ok"]',
+            'button:has-text("OK")',
+            'button:has-text("Not now")',
+            'div[role="button"]:has-text("Dismiss")',
+            '[data-animate-modal-popup="true"]',
+            # Close buttons
+            'span[data-icon="x"]',
+            'span[data-icon="x-light"]',
+            'div[aria-label="Close"]',
+            'button[aria-label="Close"]',
+        ]
+        
+        dismissed_any = False
+        for selector in popup_selectors:
+            try:
+                elements = page.locator(selector)
+                if elements.count() > 0:
+                    for i in range(min(elements.count(), 3)):  # Try first 3 matches
+                        try:
+                            elem = elements.nth(i)
+                            if elem.is_visible():
+                                elem.click(timeout=2000)
+                                print(f"✓ Dismissed popup: {selector}")
+                                dismissed_any = True
+                                time.sleep(1)
+                                break
+                        except:
+                            continue
+            except:
+                continue
+        
+        if dismissed_any:
+            time.sleep(2)
+            print("✓ Popups dismissed, continuing...")
+        else:
+            print("No popups found")
+        
+        return dismissed_any
+
+    def wait_for_whatsapp_load(self, page, timeout=180):
         """Wait for WhatsApp to load and handle QR code if needed"""
         print("Checking WhatsApp Web status...")
         start_time = time.time()
@@ -57,6 +102,7 @@ class WhatsAppSender:
                     page.screenshot(path=f"debug_loading_{elapsed}s.png")
                     print(f"Debug screenshot saved: debug_loading_{elapsed}s.png")
 
+                # Check for QR code
                 qr_selectors = [
                     'canvas[aria-label*="Scan"]',
                     'canvas[role="img"]',
@@ -79,19 +125,36 @@ class WhatsAppSender:
                         time.sleep(5)
                         break
 
+                # CRITICAL: Check if still loading chats
+                loading_indicators = [
+                    'text=Loading your chats',
+                    'text=Initializing',
+                    'div[role="progressbar"]',
+                    'progress',
+                ]
+                
+                still_loading = False
+                for loading_sel in loading_indicators:
+                    try:
+                        if page.locator(loading_sel).count() > 0:
+                            still_loading = True
+                            if elapsed % 5 == 0:
+                                print(f"WhatsApp still loading chats... ({elapsed}s / {timeout}s)")
+                            break
+                    except:
+                        continue
+                
+                # If still loading, wait and continue
+                if still_loading:
+                    time.sleep(2)
+                    continue
+
+                # Now check if actually loaded - verify search box is present and visible
                 loaded_selectors = [
                     '[data-testid="chat-list-search"]',
                     'div[contenteditable="true"][data-tab="3"]',
                     '[aria-label="Search input textbox"]',
                     'div[role="textbox"][title="Search input textbox"]',
-                    '#side',
-                    'div[data-testid="chatlist-content"]',
-                    'div#pane-side',
-                    '[data-testid="chat-list"]',
-                    'div[aria-label="Chat list"]',
-                    '[data-testid="cell-frame-container"]',
-                    'div[data-testid="app-wrapper-main"]',
-                    'div[data-testid="chatlist-header"]',
                 ]
 
                 for selector in loaded_selectors:
@@ -101,21 +164,32 @@ class WhatsAppSender:
                         if count > 0:
                             if elements.first.is_visible():
                                 print(f"✓ WhatsApp loaded successfully (found: {selector})")
-                                time.sleep(3)  # Increased wait time
+                                print("Waiting extra time for full initialization...")
+                                time.sleep(5)  # Extra wait to ensure everything is ready
                                 return True
                     except Exception as e:
                         continue
 
-                # Alternative check: Look for specific text
-                try:
-                    if page.get_by_text("Chats").count() > 0 or \
-                       page.get_by_text("Status").count() > 0 or \
-                       page.get_by_text("Communities").count() > 0:
-                        print("✓ WhatsApp loaded (found navigation text)")
-                        time.sleep(3)
-                        return True
-                except:
-                    pass
+                # Secondary check: Look for chat list elements
+                secondary_selectors = [
+                    '#side',
+                    'div[data-testid="chatlist-content"]',
+                    'div#pane-side',
+                    '[data-testid="chat-list"]',
+                    '[data-testid="cell-frame-container"]',
+                    'div[data-testid="chatlist-header"]',
+                ]
+                
+                for selector in secondary_selectors:
+                    try:
+                        elements = page.locator(selector)
+                        if elements.count() > 0 and elements.first.is_visible():
+                            print(f"✓ WhatsApp loaded (found: {selector})")
+                            print("Waiting extra time for full initialization...")
+                            time.sleep(5)
+                            return True
+                    except:
+                        continue
 
                 # Print status every 5 seconds
                 if elapsed % 5 == 0:
@@ -143,55 +217,145 @@ class WhatsAppSender:
         return False
 
     def find_and_open_chat(self, page, group_name):
-        """Find and open a chat/group"""
+        """Find and open a chat/group with enhanced search box detection"""
         print(f"\nSearching for: {group_name}")
-
+        
+        # First, dismiss any popups that might be blocking
+        self.dismiss_popups(page)
+        
+        # Enhanced search selectors with more variations
         search_selectors = [
             '[data-testid="chat-list-search"]',
             'div[contenteditable="true"][data-tab="3"]',
             '[aria-label="Search input textbox"]',
             'div[role="textbox"][title="Search input textbox"]',
+            'div[role="textbox"][data-tab="3"]',
+            'div.selectable-text[contenteditable="true"][data-tab="3"]',
+            'div[contenteditable="true"][spellcheck="true"][data-tab="3"]',
+            # New alternative selectors
+            'div#side div[role="textbox"]',
+            'div[data-testid="chatlist-header"] div[role="textbox"]',
+            'header div[contenteditable="true"]',
+            'div.copyable-text[contenteditable="true"]',
         ]
 
-        # Wait for search box to be available with retry logic
+        # Wait for search box with extensive debugging
         search_box = None
-        max_attempts = 30
+        max_attempts = 60  # Increased from 30
+        
         for attempt in range(max_attempts):
+            # Try to dismiss popups periodically
+            if attempt > 0 and attempt % 10 == 0:
+                self.dismiss_popups(page)
+            
+            # Debug: Save screenshot every 10 attempts
+            if attempt % 10 == 0 and attempt > 0:
+                elapsed = attempt
+                print(f"Still waiting for search box... ({attempt}/{max_attempts})")
+                page.screenshot(path=f"search_wait_{elapsed}s.png")
+                
+                # Save HTML for debugging
+                try:
+                    with open(f"search_wait_{elapsed}s.html", "w", encoding="utf-8") as f:
+                        f.write(page.content())
+                    print(f"Debug HTML saved: search_wait_{elapsed}s.html")
+                except:
+                    pass
+            
+            # Try all selectors
             for selector in search_selectors:
                 try:
                     elements = page.locator(selector)
                     if elements.count() > 0:
                         elem = elements.first
                         if elem.is_visible():
-                            search_box = elem
-                            print(f"✓ Found search box: {selector}")
-                            break
+                            # Additional check: ensure it's actually editable
+                            try:
+                                contenteditable = elem.get_attribute("contenteditable")
+                                if contenteditable == "true" or contenteditable is None:
+                                    search_box = elem
+                                    print(f"✓ Found search box: {selector}")
+                                    break
+                            except:
+                                search_box = elem
+                                print(f"✓ Found search box: {selector}")
+                                break
                 except Exception as e:
                     continue
 
             if search_box:
                 break
-
-            if attempt % 5 == 0 and attempt > 0:
-                print(f"Still waiting for search box... ({attempt}/{max_attempts})")
+            
+            # Alternative: Try to find by placeholder text
+            if attempt > 20:
+                try:
+                    placeholder_search = page.get_by_placeholder("Search or start new chat")
+                    if placeholder_search.count() > 0:
+                        search_box = placeholder_search.first
+                        print("✓ Found search box by placeholder text")
+                        break
+                except:
+                    pass
+            
+            # Alternative: Try to click on the search icon to activate search
+            if attempt > 30:
+                try:
+                    search_icon = page.locator('span[data-icon="search"]')
+                    if search_icon.count() > 0 and search_icon.first.is_visible():
+                        print("Attempting to click search icon...")
+                        search_icon.first.click()
+                        time.sleep(2)
+                        continue
+                except:
+                    pass
 
             time.sleep(1)
 
         if not search_box:
             page.screenshot(path="no_search_box.png")
-            raise Exception("Could not find search box. Screenshot saved as 'no_search_box.png'")
+            
+            # Enhanced debugging
+            try:
+                with open("no_search_box_debug.html", "w", encoding="utf-8") as f:
+                    f.write(page.content())
+                print("Debug HTML saved: no_search_box_debug.html")
+                
+                # Try to find any textbox on the page
+                print("\nDEBUG: Looking for ANY textbox on the page:")
+                all_textboxes = page.locator('div[role="textbox"]')
+                print(f"Found {all_textboxes.count()} textbox elements")
+                for i in range(min(all_textboxes.count(), 5)):
+                    try:
+                        tb = all_textboxes.nth(i)
+                        if tb.is_visible():
+                            aria = tb.get_attribute("aria-label") or ""
+                            title = tb.get_attribute("title") or ""
+                            tab = tb.get_attribute("data-tab") or ""
+                            print(f"  Textbox {i}: aria-label='{aria}', title='{title}', data-tab='{tab}'")
+                    except:
+                        pass
+            except:
+                pass
+            
+            raise Exception("Could not find search box after exhaustive search. Check no_search_box.png and no_search_box_debug.html")
 
-        for click_attempt in range(3):
+        # Click and type in search box
+        print("Attempting to activate search box...")
+        for click_attempt in range(5):  # Increased from 3
             try:
                 search_box.click()
                 time.sleep(0.5)
                 break
             except Exception as e:
-                if click_attempt == 2:
-                    raise Exception(f"Could not click search box after 3 attempts: {e}")
+                if click_attempt == 4:
+                    raise Exception(f"Could not click search box after 5 attempts: {e}")
+                print(f"Click attempt {click_attempt + 1} failed, retrying...")
                 time.sleep(0.5)
 
         time.sleep(1)
+        
+        # Type the group name
+        print(f"Typing '{group_name}' in search...")
         page.keyboard.type(group_name, delay=100)
         print(f"✓ Typed '{group_name}' in search")
         time.sleep(3)
@@ -199,6 +363,7 @@ class WhatsAppSender:
         page.screenshot(path="search_results.png")
         print("Screenshot of search results saved as 'search_results.png'")
 
+        # Find and click on the chat
         chat_selectors = [
             f'span[title="{group_name}"]',
             '[data-testid="cell-frame-container"]',
@@ -223,6 +388,7 @@ class WhatsAppSender:
 
         time.sleep(3)
 
+        # Verify chat opened
         message_box_selectors = [
             '[data-testid="conversation-compose-box-input"]',
             'div[contenteditable="true"][data-tab="10"]',
@@ -400,11 +566,11 @@ class WhatsAppSender:
                 print(f"\n❌ ERROR DETECTED: {error_msg}")
                 return False, f"WhatsApp error: {error_msg}"
             
-            # NEW: Stability check - same number of checks for 3 consecutive iterations
+            # Stability check
             current_check_count = len(set(current_checks))
             if current_check_count == last_check_count and current_check_count >= 3:
                 stable_count += 1
-                if stable_count >= 3:  # Stable for 3 iterations (6 seconds)
+                if stable_count >= 3:
                     print(f"\n✓ VERIFICATION STABLE ({current_check_count} checks, stable for {stable_count} iterations)")
                     break
             else:
@@ -412,12 +578,12 @@ class WhatsAppSender:
             
             last_check_count = current_check_count
             
-            # Success criteria: Need at least 3 different verification checks
+            # Success criteria
             unique_checks = len(set(verification_checks))
-            if unique_checks >= 3 and elapsed > 10:  # At least 10 seconds elapsed
-                if stable_count >= 2:  # Reasonably stable
+            if unique_checks >= 3 and elapsed > 10:
+                if stable_count >= 2:
                     print(f"\n✓ VERIFICATION PASSED ({unique_checks} checks succeeded)")
-                    time.sleep(3)  # Extra wait for stability
+                    time.sleep(3)
                     
                     page.screenshot(path="verification_success.png")
                     
@@ -461,22 +627,28 @@ class WhatsAppSender:
 
     def find_attach_button(self, page, max_wait=30):
         """
-        Robust attach button finder with extensive debugging
+        Robust attach button finder - handles both labeled and unlabeled attach buttons
         """
         print("\n" + "="*50)
-        print("ATTACH BUTTON DETECTION - DETAILED MODE")
+        print("ATTACH BUTTON DETECTION - FIXED MODE")
         print("="*50)
         
-        attach_selectors = [
-            '[data-testid="clip"]',
-            'button[aria-label="Attach"]',
-            'span[data-icon="clip"]',
-            'button[title="Attach"]',
+        # CRITICAL: First ensure the compose area is visible and loaded
+        print("Ensuring compose area is loaded...")
+        try:
+            page.wait_for_selector('[data-testid="conversation-compose-box-input"]', timeout=10000, state="visible")
+            time.sleep(2)  # Extra wait for buttons to render
+            print("✓ Compose area loaded")
+        except Exception as e:
+            print(f"⚠️ Warning: Compose area wait failed: {e}")
+        
+        # Based on successful log: div[aria-label="Attach"] worked
+        # But sometimes WhatsApp doesn't set the aria-label
+        priority_selectors = [
             'div[aria-label="Attach"]',
-            'div[title="Attach"]',
-            'svg[data-icon="clip"]',
-            'footer button',
-            'div[role="button"]',
+            'button[aria-label="Attach"]',
+            '[data-testid="clip"]',
+            'span[data-icon="clip"]',
         ]
         
         start_time = time.time()
@@ -490,7 +662,8 @@ class WhatsAppSender:
                 print(f"Still searching for attach button... ({elapsed}s / {max_wait}s)")
                 page.screenshot(path=f"attach_search_{elapsed}s.png")
             
-            for selector in attach_selectors:
+            # Try priority selectors first
+            for selector in priority_selectors:
                 try:
                     elements = page.locator(selector)
                     count = elements.count()
@@ -503,39 +676,67 @@ class WhatsAppSender:
                                 continue
                             
                             try:
-                                tag_name = elem.evaluate("el => el.tagName")
-                                aria_label = elem.get_attribute("aria-label") or ""
-                                title = elem.get_attribute("title") or ""
-                                data_icon = elem.get_attribute("data-icon") or ""
+                                # Verify it's in footer
+                                in_footer = elem.evaluate("el => !!el.closest('footer')")
                                 
-                                print(f"\nFound potential attach button:")
-                                print(f"  Selector: {selector}")
-                                print(f"  Tag: {tag_name}")
-                                print(f"  Aria-label: {aria_label}")
-                                print(f"  Title: {title}")
-                                print(f"  Data-icon: {data_icon}")
-                                
-                                is_attach = (
-                                    "attach" in aria_label.lower() or
-                                    "attach" in title.lower() or
-                                    "clip" in data_icon.lower() or
-                                    selector == '[data-testid="clip"]'
-                                )
-                                
-                                if is_attach:
-                                    print("  ✓ Confirmed as attach button!")
+                                if in_footer:
+                                    aria_label = elem.get_attribute("aria-label") or ""
+                                    print(f"✓ Found attach button: {selector}")
+                                    print(f"  Aria-label: {aria_label}")
                                     return elem
                                     
                             except Exception as e:
-                                print(f"  Error checking element: {e}")
                                 continue
                                 
                 except Exception as e:
                     continue
             
+            # NEW: Handle unlabeled footer buttons (common in recent WhatsApp versions)
+            # The attach button is often the FIRST button in footer with no aria-label
+            try:
+                footer_buttons = page.locator('footer button')
+                if footer_buttons.count() > 0:
+                    # Check first few buttons
+                    for i in range(min(3, footer_buttons.count())):
+                        btn = footer_buttons.nth(i)
+                        if not btn.is_visible():
+                            continue
+                        
+                        aria_label = btn.get_attribute("aria-label") or ""
+                        title = btn.get_attribute("title") or ""
+                        
+                        # Skip voice message button
+                        if "voice" in aria_label.lower() or "voice" in title.lower():
+                            continue
+                        
+                        # If it's an unlabeled button in footer, likely attach button
+                        if aria_label == "" and title == "":
+                            # Double-check it has a clip icon child or is the first button
+                            has_clip = btn.locator('span[data-icon="clip"]').count() > 0
+                            has_plus = btn.locator('span[data-icon="plus"]').count() > 0
+                            
+                            if has_clip or has_plus or i == 0:
+                                print(f"✓ Found unlabeled footer button (likely attach): position {i}")
+                                return btn
+            except Exception as e:
+                print(f"Footer button search error: {e}")
+            
+            # Try finding by icon within compose area  
+            if attempt > 5:
+                try:
+                    compose_clip = page.locator('footer span[data-icon="clip"]').first
+                    if compose_clip.is_visible():
+                        # Get the clickable parent
+                        parent = compose_clip.evaluate_handle("el => el.closest('button, div[role=\"button\"]')")
+                        if parent:
+                            print("✓ Found attach button via clip icon")
+                            return parent.as_element()
+                except Exception as e:
+                    pass
+            
             time.sleep(1)
         
-        # If we get here, we failed to find it
+        # Failed to find
         print("\n❌ Could not find attach button after exhaustive search")
         page.screenshot(path="attach_button_not_found.png")
         
@@ -543,6 +744,21 @@ class WhatsAppSender:
             with open("attach_debug.html", "w", encoding="utf-8") as f:
                 f.write(page.content())
             print("Page HTML saved to: attach_debug.html")
+            
+            # Debug info
+            print("\nDEBUG: Footer buttons found:")
+            footer_btns = page.locator('footer button')
+            for i in range(min(footer_btns.count(), 10)):
+                try:
+                    btn = footer_btns.nth(i)
+                    if btn.is_visible():
+                        aria = btn.get_attribute("aria-label") or "(empty)"
+                        title = btn.get_attribute("title") or "(empty)"
+                        has_clip = btn.locator('span[data-icon="clip"]').count() > 0
+                        has_plus = btn.locator('span[data-icon="plus"]').count() > 0
+                        print(f"  Button {i}: aria='{aria}', title='{title}', has_clip={has_clip}, has_plus={has_plus}")
+                except:
+                    pass
         except:
             pass
         
@@ -578,10 +794,10 @@ class WhatsAppSender:
                     '--disable-dev-shm-usage',
                     '--disable-web-security',
                     '--disable-features=IsolateOrigins,site-per-process',
-                    '--disable-gpu',  # Added for headless stability
+                    '--disable-gpu',
                     '--window-size=1280,720',
                 ],
-                slow_mo=150,  # Increased from 100 for better stability
+                slow_mo=150,
             )
 
             page = browser.pages[0] if browser.pages else browser.new_page()
@@ -598,8 +814,12 @@ class WhatsAppSender:
                 if not self.wait_for_whatsapp_load(page):
                     raise Exception("WhatsApp failed to load. Check debug screenshots and timeout_page.html")
 
-                print("Waiting for UI elements to stabilize...")
-                time.sleep(5)
+                print("WhatsApp loaded. Waiting for full initialization...")
+                time.sleep(10)  # Increased from 5 to give chats time to fully load
+                
+                # Additional wait and popup dismissal
+                self.dismiss_popups(page)
+                time.sleep(2)
 
                 self.find_and_open_chat(page, group_name)
                 time.sleep(3)
@@ -689,7 +909,7 @@ class WhatsAppSender:
                     raise Exception("All file upload methods failed")
 
                 print("Waiting for WhatsApp to process the file...")
-                time.sleep(7)  # Increased from 5
+                time.sleep(7)
                 page.screenshot(path="after_file_upload.png")
 
                 print("Waiting for file preview dialog...")
@@ -754,7 +974,7 @@ class WhatsAppSender:
                 if not typed_message:
                     print("⚠️ Could not attach message. Proceeding without message.")
 
-                time.sleep(2)  # Extra wait after typing
+                time.sleep(2)
 
                 print("Looking for send button...")
                 send_selectors = [
@@ -808,7 +1028,7 @@ class WhatsAppSender:
                     pdf_filename, 
                     initial_count, 
                     message_selector,
-                    timeout=120  # Increased from 90
+                    timeout=120
                 )
 
                 if not verification_success:
