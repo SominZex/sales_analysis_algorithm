@@ -68,7 +68,7 @@ class WhatsAppSender:
             try:
                 elements = page.locator(selector)
                 if elements.count() > 0:
-                    for i in range(min(elements.count(), 3)):  # Try first 3 matches
+                    for i in range(min(elements.count(), 3)):
                         try:
                             elem = elements.nth(i)
                             if elem.is_visible():
@@ -90,19 +90,31 @@ class WhatsAppSender:
         
         return dismissed_any
 
-    def wait_for_whatsapp_load(self, page, timeout=180):
-        """Wait for WhatsApp to load and handle QR code if needed"""
+    def wait_for_whatsapp_load(self, page, timeout=120):
+        """
+        FIXED: Improved WhatsApp loading detection - focuses on success indicators, not loading indicators
+        """
         print("Checking WhatsApp Web status...")
         start_time = time.time()
+        
+        # Take initial screenshot
+        page.screenshot(path="whatsapp_initial.png")
+        print("Initial screenshot saved: whatsapp_initial.png")
+
+        # Track consecutive successful checks
+        consecutive_success_checks = 0
+        required_consecutive_checks = 3
 
         while time.time() - start_time < timeout:
             try:
                 elapsed = int(time.time() - start_time)
-                if elapsed % 10 == 0 and elapsed > 0:
+                
+                # Periodic screenshots for debugging
+                if elapsed % 20 == 0 and elapsed > 0:
                     page.screenshot(path=f"debug_loading_{elapsed}s.png")
                     print(f"Debug screenshot saved: debug_loading_{elapsed}s.png")
 
-                # Check for QR code
+                # Check for QR code FIRST
                 qr_selectors = [
                     'canvas[aria-label*="Scan"]',
                     'canvas[role="img"]',
@@ -125,82 +137,77 @@ class WhatsAppSender:
                         time.sleep(5)
                         break
 
-                # CRITICAL: Check if still loading chats
-                loading_indicators = [
-                    'text=Loading your chats',
-                    'text=Initializing',
-                    'div[role="progressbar"]',
-                    'progress',
-                ]
-                
-                still_loading = False
-                for loading_sel in loading_indicators:
-                    try:
-                        if page.locator(loading_sel).count() > 0:
-                            still_loading = True
-                            if elapsed % 5 == 0:
-                                print(f"WhatsApp still loading chats... ({elapsed}s / {timeout}s)")
-                            break
-                    except:
-                        continue
-                
-                # If still loading, wait and continue
-                if still_loading:
-                    time.sleep(2)
-                    continue
-
-                # Now check if actually loaded - verify search box is present and visible
-                loaded_selectors = [
+                # FIXED: Check for SUCCESS indicators (what we WANT to see), not loading indicators
+                # This is the key fix - we look for elements that indicate WhatsApp is READY
+                success_indicators = [
+                    # Primary: Search box (most reliable indicator WhatsApp is ready)
                     '[data-testid="chat-list-search"]',
                     'div[contenteditable="true"][data-tab="3"]',
-                    '[aria-label="Search input textbox"]',
-                    'div[role="textbox"][title="Search input textbox"]',
-                ]
-
-                for selector in loaded_selectors:
-                    try:
-                        elements = page.locator(selector)
-                        count = elements.count()
-                        if count > 0:
-                            if elements.first.is_visible():
-                                print(f"✓ WhatsApp loaded successfully (found: {selector})")
-                                print("Waiting extra time for full initialization...")
-                                time.sleep(5)  # Extra wait to ensure everything is ready
-                                return True
-                    except Exception as e:
-                        continue
-
-                # Secondary check: Look for chat list elements
-                secondary_selectors = [
+                    # Secondary: Chat list sidebar
                     '#side',
-                    'div[data-testid="chatlist-content"]',
                     'div#pane-side',
-                    '[data-testid="chat-list"]',
+                    'div[data-testid="chatlist-content"]',
+                    # Tertiary: Any chat items visible
                     '[data-testid="cell-frame-container"]',
-                    'div[data-testid="chatlist-header"]',
                 ]
-                
-                for selector in secondary_selectors:
+
+                found_success_indicator = False
+                for selector in success_indicators:
                     try:
                         elements = page.locator(selector)
-                        if elements.count() > 0 and elements.first.is_visible():
-                            print(f"✓ WhatsApp loaded (found: {selector})")
-                            print("Waiting extra time for full initialization...")
-                            time.sleep(5)
-                            return True
+                        if elements.count() > 0:
+                            elem = elements.first
+                            # Use a short timeout to check visibility without blocking
+                            try:
+                                if elem.is_visible(timeout=1000):
+                                    found_success_indicator = True
+                                    print(f"✓ Success indicator found: {selector}")
+                                    break
+                            except:
+                                continue
                     except:
                         continue
 
-                # Print status every 5 seconds
-                if elapsed % 5 == 0:
-                    print(f"Still loading... ({elapsed}s / {timeout}s)")
-
-                time.sleep(2)
+                # If we found a success indicator, increment counter
+                if found_success_indicator:
+                    consecutive_success_checks += 1
+                    print(f"✓ WhatsApp appears loaded ({consecutive_success_checks}/{required_consecutive_checks} checks)")
+                    
+                    if consecutive_success_checks >= required_consecutive_checks:
+                        print("✓ WhatsApp successfully loaded and stable!")
+                        print("Waiting for full initialization...")
+                        time.sleep(3)
+                        
+                        # Final verification - check for chat items
+                        chat_items = page.locator('[data-testid="cell-frame-container"]')
+                        chat_count = chat_items.count()
+                        if chat_count > 0:
+                            print(f"✓ Confirmed: Found {chat_count} chat(s)")
+                        else:
+                            print("✓ WhatsApp interface loaded (no chats visible yet)")
+                        
+                        return True
+                    
+                    # Wait a bit before next check
+                    time.sleep(2)
+                else:
+                    # Reset counter if we don't find indicator
+                    if consecutive_success_checks > 0:
+                        print(f"⚠️ Lost success indicator, resetting counter")
+                    consecutive_success_checks = 0
+                    
+                    # Print status periodically
+                    if elapsed % 10 == 0:
+                        print(f"Waiting for WhatsApp to load... ({elapsed}s / {timeout}s)")
+                    
+                    time.sleep(3)
 
             except Exception as e:
+                consecutive_success_checks = 0
                 elapsed = int(time.time() - start_time)
-                print(f"Checking... ({elapsed}s) - Error: {str(e)[:50]}")
-                time.sleep(2)
+                if elapsed % 10 == 0:
+                    print(f"Checking... ({elapsed}s) - Error: {str(e)[:100]}")
+                time.sleep(3)
 
         # Timeout reached
         print("\n⚠️  Timeout reached!")
@@ -211,8 +218,17 @@ class WhatsAppSender:
             with open("timeout_page.html", "w", encoding="utf-8") as f:
                 f.write(page.content())
             print("Page HTML saved to: timeout_page.html")
-        except:
-            pass
+            
+            # Additional debug info
+            print("\nDEBUG INFO at timeout:")
+            search_box_selector = '[data-testid="chat-list-search"]'
+            side_selector = '#side'
+            chat_items_selector = '[data-testid="cell-frame-container"]'
+            print(f"  Search box count: {page.locator(search_box_selector).count()}")
+            print(f"  Side panel count: {page.locator(side_selector).count()}")
+            print(f"  Chat items count: {page.locator(chat_items_selector).count()}")
+        except Exception as e:
+            print(f"Error saving debug info: {e}")
 
         return False
 
@@ -222,8 +238,8 @@ class WhatsAppSender:
         
         # First, dismiss any popups that might be blocking
         self.dismiss_popups(page)
+        time.sleep(1)
         
-        # Enhanced search selectors with more variations
         search_selectors = [
             '[data-testid="chat-list-search"]',
             'div[contenteditable="true"][data-tab="3"]',
@@ -241,7 +257,7 @@ class WhatsAppSender:
 
         # Wait for search box with extensive debugging
         search_box = None
-        max_attempts = 60  # Increased from 30
+        max_attempts = 40  # Reduced from 60 since we already verified WhatsApp is loaded
         
         for attempt in range(max_attempts):
             # Try to dismiss popups periodically
@@ -250,17 +266,8 @@ class WhatsAppSender:
             
             # Debug: Save screenshot every 10 attempts
             if attempt % 10 == 0 and attempt > 0:
-                elapsed = attempt
                 print(f"Still waiting for search box... ({attempt}/{max_attempts})")
-                page.screenshot(path=f"search_wait_{elapsed}s.png")
-                
-                # Save HTML for debugging
-                try:
-                    with open(f"search_wait_{elapsed}s.html", "w", encoding="utf-8") as f:
-                        f.write(page.content())
-                    print(f"Debug HTML saved: search_wait_{elapsed}s.html")
-                except:
-                    pass
+                page.screenshot(path=f"search_wait_{attempt}s.png")
             
             # Try all selectors
             for selector in search_selectors:
@@ -268,7 +275,7 @@ class WhatsAppSender:
                     elements = page.locator(selector)
                     if elements.count() > 0:
                         elem = elements.first
-                        if elem.is_visible():
+                        if elem.is_visible(timeout=500):
                             # Additional check: ensure it's actually editable
                             try:
                                 contenteditable = elem.get_attribute("contenteditable")
@@ -287,7 +294,7 @@ class WhatsAppSender:
                 break
             
             # Alternative: Try to find by placeholder text
-            if attempt > 20:
+            if attempt > 15:
                 try:
                     placeholder_search = page.get_by_placeholder("Search or start new chat")
                     if placeholder_search.count() > 0:
@@ -298,7 +305,7 @@ class WhatsAppSender:
                     pass
             
             # Alternative: Try to click on the search icon to activate search
-            if attempt > 30:
+            if attempt > 20:
                 try:
                     search_icon = page.locator('span[data-icon="search"]')
                     if search_icon.count() > 0 and search_icon.first.is_visible():
@@ -341,7 +348,7 @@ class WhatsAppSender:
 
         # Click and type in search box
         print("Attempting to activate search box...")
-        for click_attempt in range(5):  # Increased from 3
+        for click_attempt in range(5):
             try:
                 search_box.click()
                 time.sleep(0.5)
@@ -482,7 +489,6 @@ class WhatsAppSender:
                 except Exception as e:
                     pass
             
-            # Check 2: Document icon in chat
             try:
                 doc_icons = page.locator('span[data-icon="document"]')
                 if doc_icons.count() > 0:
@@ -494,7 +500,6 @@ class WhatsAppSender:
             except:
                 pass
             
-            # Check 3: PDF filename visible
             try:
                 if page.get_by_text(pdf_filename).count() > 0:
                     check_msg = f"✓ PDF filename '{pdf_filename}' found in chat"
@@ -630,20 +635,17 @@ class WhatsAppSender:
         Robust attach button finder - handles both labeled and unlabeled attach buttons
         """
         print("\n" + "="*50)
-        print("ATTACH BUTTON DETECTION - FIXED MODE")
+        print("ATTACH BUTTON DETECTION")
         print("="*50)
         
-        # CRITICAL: First ensure the compose area is visible and loaded
         print("Ensuring compose area is loaded...")
         try:
             page.wait_for_selector('[data-testid="conversation-compose-box-input"]', timeout=10000, state="visible")
-            time.sleep(2)  # Extra wait for buttons to render
+            time.sleep(2) 
             print("✓ Compose area loaded")
         except Exception as e:
             print(f"⚠️ Warning: Compose area wait failed: {e}")
-        
-        # Based on successful log: div[aria-label="Attach"] worked
-        # But sometimes WhatsApp doesn't set the aria-label
+
         priority_selectors = [
             'div[aria-label="Attach"]',
             'button[aria-label="Attach"]',
@@ -676,7 +678,6 @@ class WhatsAppSender:
                                 continue
                             
                             try:
-                                # Verify it's in footer
                                 in_footer = elem.evaluate("el => !!el.closest('footer')")
                                 
                                 if in_footer:
@@ -691,12 +692,9 @@ class WhatsAppSender:
                 except Exception as e:
                     continue
             
-            # NEW: Handle unlabeled footer buttons (common in recent WhatsApp versions)
-            # The attach button is often the FIRST button in footer with no aria-label
             try:
                 footer_buttons = page.locator('footer button')
                 if footer_buttons.count() > 0:
-                    # Check first few buttons
                     for i in range(min(3, footer_buttons.count())):
                         btn = footer_buttons.nth(i)
                         if not btn.is_visible():
@@ -711,7 +709,6 @@ class WhatsAppSender:
                         
                         # If it's an unlabeled button in footer, likely attach button
                         if aria_label == "" and title == "":
-                            # Double-check it has a clip icon child or is the first button
                             has_clip = btn.locator('span[data-icon="clip"]').count() > 0
                             has_plus = btn.locator('span[data-icon="plus"]').count() > 0
                             
@@ -720,8 +717,7 @@ class WhatsAppSender:
                                 return btn
             except Exception as e:
                 print(f"Footer button search error: {e}")
-            
-            # Try finding by icon within compose area  
+              
             if attempt > 5:
                 try:
                     compose_clip = page.locator('footer span[data-icon="clip"]').first
@@ -784,6 +780,7 @@ class WhatsAppSender:
         with sync_playwright() as p:
             print("Launching browser with saved session...")
 
+            # FIXED: Better browser configuration for headless mode
             browser = p.chromium.launch_persistent_context(
                 user_data_dir=self.user_data_dir,
                 headless=True,
@@ -795,27 +792,35 @@ class WhatsAppSender:
                     '--disable-web-security',
                     '--disable-features=IsolateOrigins,site-per-process',
                     '--disable-gpu',
-                    '--window-size=1280,720',
+                    '--window-size=1920,1080',
+                    '--disable-notifications',
+                    '--disable-popup-blocking',
+                    '--disable-infobars',
                 ],
-                slow_mo=150,
+                slow_mo=100,
+                viewport={"width": 1920, "height": 1080},
             )
 
             page = browser.pages[0] if browser.pages else browser.new_page()
-            page.set_viewport_size({"width": 1280, "height": 720})
+            
+            # Set a more modern user agent
             page.set_extra_http_headers({
-                "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36"
+                "User-Agent": "Mozilla/5.0 (X11; Linux x86_64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36"
             })
 
             try:
                 print("Navigating to WhatsApp Web...")
-                page.goto('https://web.whatsapp.com', wait_until="networkidle", timeout=60000)
-                time.sleep(5)
+                # FIXED: Use domcontentloaded instead of networkidle for faster loading
+                page.goto('https://web.whatsapp.com', wait_until="domcontentloaded", timeout=60000)
+                print("Page loaded, waiting for WhatsApp to initialize...")
+                time.sleep(3)
 
                 if not self.wait_for_whatsapp_load(page):
                     raise Exception("WhatsApp failed to load. Check debug screenshots and timeout_page.html")
 
-                print("WhatsApp loaded. Waiting for full initialization...")
-                time.sleep(10)  # Increased from 5 to give chats time to fully load
+                print("✓ WhatsApp loaded successfully!")
+                print("Waiting for full initialization...")
+                time.sleep(5)
                 
                 # Additional wait and popup dismissal
                 self.dismiss_popups(page)
