@@ -8,7 +8,7 @@ from io import BytesIO
 from sqlalchemy import create_engine
 from sqlalchemy.exc import OperationalError
 
-DB_URI = "postgresql+psycopg2://<user>:<pw>@<server_ip>/<db>"
+DB_URI = "postgresql+psycopg2://<user>:<password>@<server_id>/sales_data"
 engine = create_engine(DB_URI, pool_pre_ping=True, pool_recycle=300)
 
 PDFKIT_CONFIG = pdfkit.configuration(wkhtmltopdf="/usr/bin/wkhtmltopdf")
@@ -154,7 +154,7 @@ def generate_store_report(store_name):
         current_week_sales = 0.0
         comparison_text = '<div style="text-align: center; margin-top: 10px;"><span style="font-size: 18px; color: #666;">No sales data available</span></div>'
     
-    # === Queries with Contribution % instead of Average Order Value
+    # === Queries with Contribution % and Profit Margin %
     brand_query = """
         WITH latest_date AS (
             SELECT MAX("orderDate")::date AS max_date
@@ -172,7 +172,14 @@ def generate_store_report(store_name):
             b."brandName",
             ROUND(SUM(b."totalProductPrice")::numeric, 2) AS total_sales,
             SUM(b."quantity") AS quantity_sold,
-            ROUND((SUM(b."totalProductPrice") / NULLIF((SELECT total FROM total_sales), 0) * 100)::numeric, 2) AS contribution
+            ROUND((SUM(b."totalProductPrice") / NULLIF((SELECT total FROM total_sales), 0) * 100)::numeric, 2) AS contrib_percent,
+            ROUND(
+                CASE 
+                    WHEN SUM(b."totalProductPrice") > 0 THEN
+                        ((SUM(b."totalProductPrice") - SUM(COALESCE(b."costPrice", 0) * b."quantity")) / SUM(b."totalProductPrice") * 100)::numeric
+                    ELSE 0
+                END, 2
+            ) AS PROFIT_MARGIN
         FROM "billing_data" b
         WHERE b."storeName" = %s
           AND b."orderDate" > (SELECT max_date FROM latest_date) - INTERVAL '7 days'
@@ -199,7 +206,14 @@ def generate_store_report(store_name):
             b."categoryName",
             ROUND(SUM(b."totalProductPrice")::numeric, 2) AS total_sales,
             SUM(b."quantity") AS quantity_sold,
-            ROUND((SUM(b."totalProductPrice") / NULLIF((SELECT total FROM total_sales), 0) * 100)::numeric, 2) AS contribution
+            ROUND((SUM(b."totalProductPrice") / NULLIF((SELECT total FROM total_sales), 0) * 100)::numeric, 2) AS contrib_percent,
+            ROUND(
+                CASE 
+                    WHEN SUM(b."totalProductPrice") > 0 THEN
+                        ((SUM(b."totalProductPrice") - SUM(COALESCE(b."costPrice", 0) * b."quantity")) / SUM(b."totalProductPrice") * 100)::numeric
+                    ELSE 0
+                END, 2
+            ) AS PROFIT_MARGIN
         FROM "billing_data" b
         WHERE b."storeName" = %s
           AND b."orderDate" > (SELECT max_date FROM latest_date) - INTERVAL '7 days'
@@ -226,7 +240,14 @@ def generate_store_report(store_name):
             b."productName",
             ROUND(SUM(b."totalProductPrice")::numeric, 2) AS total_sales,
             SUM(b."quantity") AS quantity_sold,
-            ROUND((SUM(b."totalProductPrice") / NULLIF((SELECT total FROM total_sales), 0) * 100)::numeric, 2) AS contribution
+            ROUND((SUM(b."totalProductPrice") / NULLIF((SELECT total FROM total_sales), 0) * 100)::numeric, 2) AS contrib_percent,
+            ROUND(
+                CASE 
+                    WHEN SUM(b."totalProductPrice") > 0 THEN
+                        ((SUM(b."totalProductPrice") - SUM(COALESCE(b."costPrice", 0) * b."quantity")) / SUM(b."totalProductPrice") * 100)::numeric
+                    ELSE 0
+                END, 2
+            ) AS PROFIT_MARGIN
         FROM "billing_data" b
         WHERE b."storeName" = %s
           AND b."orderDate" > (SELECT max_date FROM latest_date) - INTERVAL '7 days'
@@ -241,13 +262,13 @@ def generate_store_report(store_name):
     category_df = safe_read_sql(category_query, params=(store_name, store_name, store_name))
     product_df = safe_read_sql(product_query, params=(store_name, store_name, store_name))
     
-    # Add percentage symbol to contribution column
-    if not brand_df.empty and 'contribution' in brand_df.columns:
-        brand_df['contribution'] = brand_df['contribution'].astype(str) + '%'
-    if not category_df.empty and 'contribution' in category_df.columns:
-        category_df['contribution'] = category_df['contribution'].astype(str) + '%'
-    if not product_df.empty and 'contribution' in product_df.columns:
-        product_df['contribution'] = product_df['contribution'].astype(str) + '%'
+    # Add percentage symbols
+    for df in [brand_df, category_df, product_df]:
+        if not df.empty:
+            if 'contrib_percent' in df.columns:
+                df['contrib_percent'] = df['contrib_percent'].astype(str) + '%'
+            if 'profit_margin' in df.columns:
+                df['profit_margin'] = df['profit_margin'].astype(str) + '%'
 
     total_sales_query = """
         WITH latest_date AS (

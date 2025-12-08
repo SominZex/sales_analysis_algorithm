@@ -8,7 +8,7 @@ from io import BytesIO
 from sqlalchemy import create_engine
 from sqlalchemy.exc import OperationalError
 
-DB_URI = "postgresql+psycopg2://<user>:<pw>@<server_ip>/<db>"
+DB_URI = "postgresql+psycopg2://<user>:<password>@<server_id>/sales_data"
 engine = create_engine(DB_URI, pool_pre_ping=True, pool_recycle=300)
 
 PDFKIT_CONFIG = pdfkit.configuration(wkhtmltopdf="/usr/bin/wkhtmltopdf")
@@ -72,19 +72,26 @@ def generate_store_report(store_name):
     """Generate monthly PDF report for one store - for PREVIOUS COMPLETE MONTH"""
     
     # Get the date range for the previous complete month
+    # Logic: Report the most recent complete month that has data
     date_range_query = """
         WITH latest_date AS (
             SELECT MAX("orderDate")::date AS max_date
             FROM "billing_data"
             WHERE "storeName" = %s
         ),
-        prev_month AS (
+        target_month AS (
             SELECT 
-                DATE_TRUNC('month', max_date - INTERVAL '1 month')::date AS month_start,
-                (DATE_TRUNC('month', max_date) - INTERVAL '1 day')::date AS month_end
-            FROM latest_date
+                CASE 
+                    -- If we have data from last month (Nov), report last month
+                    WHEN (SELECT DATE_TRUNC('month', max_date) FROM latest_date) >= DATE_TRUNC('month', CURRENT_DATE - INTERVAL '1 month')
+                    THEN DATE_TRUNC('month', CURRENT_DATE - INTERVAL '1 month')
+                    -- Otherwise, report the most recent month we have data for
+                    ELSE DATE_TRUNC('month', (SELECT max_date FROM latest_date))
+                END AS report_month
         )
-        SELECT month_start, month_end FROM prev_month;
+        SELECT 
+            (SELECT report_month FROM target_month)::date AS month_start,
+            ((SELECT report_month FROM target_month) + INTERVAL '1 month' - INTERVAL '1 day')::date AS month_end;
     """
     
     date_info = safe_read_sql(date_range_query, params=(store_name,))
@@ -105,25 +112,33 @@ def generate_store_report(store_name):
             FROM "billing_data"
             WHERE "storeName" = %s
         ),
+        target_month AS (
+            SELECT 
+                CASE 
+                    WHEN DATE_TRUNC('month', (SELECT max_date FROM latest_date)) >= DATE_TRUNC('month', CURRENT_DATE - INTERVAL '1 month')
+                    THEN DATE_TRUNC('month', CURRENT_DATE - INTERVAL '1 month')
+                    ELSE DATE_TRUNC('month', (SELECT max_date FROM latest_date))
+                END AS report_month
+        ),
         sales_periods AS (
             SELECT 
                 SUM(CASE 
-                    WHEN DATE_TRUNC('month', "orderDate") = DATE_TRUNC('month', (SELECT max_date FROM latest_date) - INTERVAL '1 month')
+                    WHEN DATE_TRUNC('month', "orderDate") = (SELECT report_month FROM target_month)
                     THEN "totalProductPrice" 
                     ELSE 0 
                 END) AS current_month_sales,
                 SUM(CASE 
-                    WHEN DATE_TRUNC('month', "orderDate") = DATE_TRUNC('month', (SELECT max_date FROM latest_date) - INTERVAL '2 months')
+                    WHEN DATE_TRUNC('month', "orderDate") = (SELECT report_month FROM target_month) - INTERVAL '1 month'
                     THEN "totalProductPrice" 
                     ELSE 0 
                 END) AS month_1_sales,
                 SUM(CASE 
-                    WHEN DATE_TRUNC('month', "orderDate") = DATE_TRUNC('month', (SELECT max_date FROM latest_date) - INTERVAL '3 months')
+                    WHEN DATE_TRUNC('month', "orderDate") = (SELECT report_month FROM target_month) - INTERVAL '2 months'
                     THEN "totalProductPrice" 
                     ELSE 0 
                 END) AS month_2_sales,
                 SUM(CASE 
-                    WHEN DATE_TRUNC('month', "orderDate") = DATE_TRUNC('month', (SELECT max_date FROM latest_date) - INTERVAL '4 months')
+                    WHEN DATE_TRUNC('month', "orderDate") = (SELECT report_month FROM target_month) - INTERVAL '3 months'
                     THEN "totalProductPrice" 
                     ELSE 0 
                 END) AS month_3_sales
@@ -160,27 +175,42 @@ def generate_store_report(store_name):
         current_month_sales = 0.0
         comparison_text = '<div style="text-align: center; margin-top: 10px;"><span style="font-size: 18px; color: #666;">No sales data available</span></div>'
     
-    # === Queries for Previous Complete Month with Contribution %
+    # === Queries for Previous Complete Month with Contribution % and Profit Margin %
     brand_query = """
         WITH latest_date AS (
             SELECT MAX("orderDate")::date AS max_date
             FROM "billing_data"
             WHERE "storeName" = %s
         ),
+        target_month AS (
+            SELECT 
+                CASE 
+                    WHEN DATE_TRUNC('month', (SELECT max_date FROM latest_date)) >= DATE_TRUNC('month', CURRENT_DATE - INTERVAL '1 month')
+                    THEN DATE_TRUNC('month', CURRENT_DATE - INTERVAL '1 month')
+                    ELSE DATE_TRUNC('month', (SELECT max_date FROM latest_date))
+                END AS report_month
+        ),
         total_sales AS (
             SELECT SUM(b."totalProductPrice") AS total
             FROM "billing_data" b
             WHERE b."storeName" = %s
-              AND DATE_TRUNC('month', b."orderDate") = DATE_TRUNC('month', (SELECT max_date FROM latest_date) - INTERVAL '1 month')
+              AND DATE_TRUNC('month', b."orderDate") = (SELECT report_month FROM target_month)
         )
         SELECT 
             b."brandName",
             ROUND(SUM(b."totalProductPrice")::numeric, 2) AS total_sales,
             SUM(b."quantity") AS quantity_sold,
-            ROUND((SUM(b."totalProductPrice") / NULLIF((SELECT total FROM total_sales), 0) * 100)::numeric, 2) AS contribution
+            ROUND((SUM(b."totalProductPrice") / NULLIF((SELECT total FROM total_sales), 0) * 100)::numeric, 2) AS contrib_percent,
+            ROUND(
+                CASE 
+                    WHEN SUM(b."totalProductPrice") > 0 THEN
+                        ((SUM(b."totalProductPrice") - SUM(COALESCE(b."costPrice", 0) * b."quantity")) / SUM(b."totalProductPrice") * 100)::numeric
+                    ELSE 0
+                END, 2
+            ) AS PROFIT_MARGIN
         FROM "billing_data" b
         WHERE b."storeName" = %s
-          AND DATE_TRUNC('month', b."orderDate") = DATE_TRUNC('month', (SELECT max_date FROM latest_date) - INTERVAL '1 month')
+          AND DATE_TRUNC('month', b."orderDate") = (SELECT report_month FROM target_month)
         GROUP BY b."brandName"
         ORDER BY total_sales DESC
         LIMIT 50;
@@ -192,20 +222,35 @@ def generate_store_report(store_name):
             FROM "billing_data"
             WHERE "storeName" = %s
         ),
+        target_month AS (
+            SELECT 
+                CASE 
+                    WHEN DATE_TRUNC('month', (SELECT max_date FROM latest_date)) >= DATE_TRUNC('month', CURRENT_DATE - INTERVAL '1 month')
+                    THEN DATE_TRUNC('month', CURRENT_DATE - INTERVAL '1 month')
+                    ELSE DATE_TRUNC('month', (SELECT max_date FROM latest_date))
+                END AS report_month
+        ),
         total_sales AS (
             SELECT SUM(b."totalProductPrice") AS total
             FROM "billing_data" b
             WHERE b."storeName" = %s
-              AND DATE_TRUNC('month', b."orderDate") = DATE_TRUNC('month', (SELECT max_date FROM latest_date) - INTERVAL '1 month')
+              AND DATE_TRUNC('month', b."orderDate") = (SELECT report_month FROM target_month)
         )
         SELECT 
             b."categoryName",
             ROUND(SUM(b."totalProductPrice")::numeric, 2) AS total_sales,
             SUM(b."quantity") AS quantity_sold,
-            ROUND((SUM(b."totalProductPrice") / NULLIF((SELECT total FROM total_sales), 0) * 100)::numeric, 2) AS contribution
+            ROUND((SUM(b."totalProductPrice") / NULLIF((SELECT total FROM total_sales), 0) * 100)::numeric, 2) AS contrib_percent,
+            ROUND(
+                CASE 
+                    WHEN SUM(b."totalProductPrice") > 0 THEN
+                        ((SUM(b."totalProductPrice") - SUM(COALESCE(b."costPrice", 0) * b."quantity")) / SUM(b."totalProductPrice") * 100)::numeric
+                    ELSE 0
+                END, 2
+            ) AS PROFIT_MARGIN
         FROM "billing_data" b
         WHERE b."storeName" = %s
-          AND DATE_TRUNC('month', b."orderDate") = DATE_TRUNC('month', (SELECT max_date FROM latest_date) - INTERVAL '1 month')
+          AND DATE_TRUNC('month', b."orderDate") = (SELECT report_month FROM target_month)
         GROUP BY b."categoryName"
         ORDER BY total_sales DESC
         LIMIT 50;
@@ -217,20 +262,35 @@ def generate_store_report(store_name):
             FROM "billing_data"
             WHERE "storeName" = %s
         ),
+        target_month AS (
+            SELECT 
+                CASE 
+                    WHEN DATE_TRUNC('month', (SELECT max_date FROM latest_date)) >= DATE_TRUNC('month', CURRENT_DATE - INTERVAL '1 month')
+                    THEN DATE_TRUNC('month', CURRENT_DATE - INTERVAL '1 month')
+                    ELSE DATE_TRUNC('month', (SELECT max_date FROM latest_date))
+                END AS report_month
+        ),
         total_sales AS (
             SELECT SUM(b."totalProductPrice") AS total
             FROM "billing_data" b
             WHERE b."storeName" = %s
-              AND DATE_TRUNC('month', b."orderDate") = DATE_TRUNC('month', (SELECT max_date FROM latest_date) - INTERVAL '1 month')
+              AND DATE_TRUNC('month', b."orderDate") = (SELECT report_month FROM target_month)
         )
         SELECT 
             b."productName",
             ROUND(SUM(b."totalProductPrice")::numeric, 2) AS total_sales,
             SUM(b."quantity") AS quantity_sold,
-            ROUND((SUM(b."totalProductPrice") / NULLIF((SELECT total FROM total_sales), 0) * 100)::numeric, 2) AS contribution
+            ROUND((SUM(b."totalProductPrice") / NULLIF((SELECT total FROM total_sales), 0) * 100)::numeric, 2) AS contrib_percent,
+            ROUND(
+                CASE 
+                    WHEN SUM(b."totalProductPrice") > 0 THEN
+                        ((SUM(b."totalProductPrice") - SUM(COALESCE(b."costPrice", 0) * b."quantity")) / SUM(b."totalProductPrice") * 100)::numeric
+                    ELSE 0
+                END, 2
+            ) AS PROFIT_MARGIN
         FROM "billing_data" b
         WHERE b."storeName" = %s
-          AND DATE_TRUNC('month', b."orderDate") = DATE_TRUNC('month', (SELECT max_date FROM latest_date) - INTERVAL '1 month')
+          AND DATE_TRUNC('month', b."orderDate") = (SELECT report_month FROM target_month)
         GROUP BY b."productName"
         ORDER BY total_sales DESC
         LIMIT 100;
@@ -241,25 +301,34 @@ def generate_store_report(store_name):
     category_df = safe_read_sql(category_query, params=(store_name, store_name, store_name))
     product_df = safe_read_sql(product_query, params=(store_name, store_name, store_name))
     
-    # Add percentage symbol to contribution column
-    if not brand_df.empty and 'contribution' in brand_df.columns:
-        brand_df['contribution'] = brand_df['contribution'].astype(str) + '%'
-    if not category_df.empty and 'contribution' in category_df.columns:
-        category_df['contribution'] = category_df['contribution'].astype(str) + '%'
-    if not product_df.empty and 'contribution' in product_df.columns:
-        product_df['contribution'] = product_df['contribution'].astype(str) + '%'
+    # Add percentage symbols
+    for df in [brand_df, category_df, product_df]:
+        if not df.empty:
+            if 'contrib_percent' in df.columns:
+                df['contrib_percent'] = df['contrib_percent'].astype(str) + '%'
+            if 'profit_margin' in df.columns:
+                df['profit_margin'] = df['profit_margin'].astype(str) + '%'
 
     total_sales_query = """
         WITH latest_date AS (
             SELECT MAX("orderDate")::date AS max_date
             FROM "billing_data"
             WHERE "storeName" = %s
+        ),
+        target_month AS (
+            SELECT 
+                CASE 
+                    WHEN EXTRACT(DAY FROM CURRENT_DATE) >= 1 
+                         AND DATE_TRUNC('month', (SELECT max_date FROM latest_date)) >= DATE_TRUNC('month', CURRENT_DATE - INTERVAL '1 month')
+                    THEN DATE_TRUNC('month', CURRENT_DATE - INTERVAL '1 month')
+                    ELSE DATE_TRUNC('month', (SELECT max_date FROM latest_date))
+                END AS report_month
         )
         SELECT 
             ROUND(SUM("totalProductPrice")::numeric, 2) AS total_monthly_sales
         FROM "billing_data"
         WHERE "storeName" = %s
-          AND DATE_TRUNC('month', "orderDate") = DATE_TRUNC('month', (SELECT max_date FROM latest_date) - INTERVAL '1 month');
+          AND DATE_TRUNC('month', "orderDate") = (SELECT report_month FROM target_month);
     """
     total_sales_df = safe_read_sql(total_sales_query, params=(store_name, store_name))
     total_monthly_sales = float(total_sales_df["total_monthly_sales"].iloc[0]) if not total_sales_df.empty and total_sales_df["total_monthly_sales"].iloc[0] is not None else 0.0
