@@ -8,7 +8,7 @@ from io import BytesIO
 from sqlalchemy import create_engine
 from sqlalchemy.exc import OperationalError
 
-DB_URI = "postgresql+psycopg2://<user>:<password>@<server_id>/sales_data"
+DB_URI = "postgresql+psycopg2://<username>:<password>@<server_ip>/sales_data"
 engine = create_engine(DB_URI, pool_pre_ping=True, pool_recycle=300)
 
 PDFKIT_CONFIG = pdfkit.configuration(wkhtmltopdf="/usr/bin/wkhtmltopdf")
@@ -309,7 +309,8 @@ def generate_store_report(store_name):
             if 'profit_margin' in df.columns:
                 df['profit_margin'] = df['profit_margin'].astype(str) + '%'
 
-    total_sales_query = """
+    # === NEW: Query for Total Sales, Total Cost, Total Profit, and Profit Margin% ===
+    total_sales_profit_query = """
         WITH latest_date AS (
             SELECT MAX("orderDate")::date AS max_date
             FROM "billing_data"
@@ -325,20 +326,40 @@ def generate_store_report(store_name):
                 END AS report_month
         )
         SELECT 
-            ROUND(SUM("totalProductPrice")::numeric, 2) AS total_monthly_sales
+            ROUND(SUM("totalProductPrice")::numeric, 2) AS total_monthly_sales,
+            ROUND(SUM(COALESCE("costPrice", 0) * "quantity")::numeric, 2) AS total_monthly_cost,
+            ROUND((SUM("totalProductPrice") - SUM(COALESCE("costPrice", 0) * "quantity"))::numeric, 2) AS total_monthly_profit,
+            ROUND(
+                CASE 
+                    WHEN SUM("totalProductPrice") > 0 THEN
+                        ((SUM("totalProductPrice") - SUM(COALESCE("costPrice", 0) * "quantity")) / SUM("totalProductPrice") * 100)::numeric
+                    ELSE 0
+                END, 2
+            ) AS profit_margin_percent
         FROM "billing_data"
         WHERE "storeName" = %s
           AND DATE_TRUNC('month', "orderDate") = (SELECT report_month FROM target_month);
     """
-    total_sales_df = safe_read_sql(total_sales_query, params=(store_name, store_name))
-    total_monthly_sales = float(total_sales_df["total_monthly_sales"].iloc[0]) if not total_sales_df.empty and total_sales_df["total_monthly_sales"].iloc[0] is not None else 0.0
+    
+    total_sales_profit_df = safe_read_sql(total_sales_profit_query, params=(store_name, store_name))
+    
+    if not total_sales_profit_df.empty and total_sales_profit_df["total_monthly_sales"].iloc[0] is not None:
+        total_monthly_sales = float(total_sales_profit_df["total_monthly_sales"].iloc[0])
+        total_monthly_cost = float(total_sales_profit_df["total_monthly_cost"].iloc[0]) if total_sales_profit_df["total_monthly_cost"].iloc[0] is not None else 0.0
+        total_monthly_profit = float(total_sales_profit_df["total_monthly_profit"].iloc[0]) if total_sales_profit_df["total_monthly_profit"].iloc[0] is not None else 0.0
+        profit_margin_percent = float(total_sales_profit_df["profit_margin_percent"].iloc[0]) if total_sales_profit_df["profit_margin_percent"].iloc[0] is not None else 0.0
+    else:
+        total_monthly_sales = 0.0
+        total_monthly_cost = 0.0
+        total_monthly_profit = 0.0
+        profit_margin_percent = 0.0
 
     # --- Charts ---
     brand_chart = plot_chart(brand_df, "brandName", "total_sales", "Top 10 Brands by Sales")
     category_chart = plot_chart(category_df, "categoryName", "total_sales", "Top 10 Categories by Sales")
     product_chart = plot_chart(product_df, "productName", "total_sales", "Top 10 Products by Sales")
 
-    # --- HTML Template
+    # --- HTML Template with Profit Display ---
     html_template = f"""
     <html>
     <head>
@@ -375,6 +396,26 @@ def generate_store_report(store_name):
                 font-size: 16px;
                 margin-bottom: 20px;
             }}
+            .profit-section {{
+                text-align: center;
+                margin: 15px 0;
+            }}
+            .profit-label {{
+                font-size: 18px;
+                color: #666;
+                display: inline-block;
+                margin-right: 10px;
+            }}
+            .profit-value {{
+                font-size: 20px;
+                font-weight: bold;
+                color: #28a745;
+            }}
+            .profit-margin {{
+                font-size: 20px;
+                font-weight: bold;
+                color: #0078d7;
+            }}
             table {{
                 width: 100%;
                 border-collapse: collapse;
@@ -409,6 +450,15 @@ def generate_store_report(store_name):
         <h1>📊 Monthly Store Report — {store_name}</h1>
         <div class="date-range">Month: {month_start_str} to {month_end_str}</div>
         <h2>Total Monthly Sales: ₹{total_monthly_sales:,.2f}</h2>
+        
+        <div class="profit-section">
+            <span class="profit-label">Total Profit:</span>
+            <span class="profit-value">₹{total_monthly_profit:,.2f}</span>
+            <span style="margin: 0 15px;">|</span>
+            <span class="profit-label">Profit Margin:</span>
+            <span class="profit-margin">{profit_margin_percent:.2f}%</span>
+        </div>
+        
         {comparison_text}
 
         <div class="table-title">Top 50 Brands (by Sales)</div>
