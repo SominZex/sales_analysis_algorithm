@@ -7,26 +7,60 @@ import time
 from io import BytesIO
 from sqlalchemy import create_engine
 from sqlalchemy.exc import OperationalError
+from sqlalchemy.pool import NullPool
 
-DB_URI = "postgresql+psycopg2://<username>:<password>@<server_ip>/sales_data"
-engine = create_engine(DB_URI, pool_pre_ping=True, pool_recycle=300)
+DB_URI = "postgresql+psycopg2://<user>:<password>@<ip_address>/<db>"
+
+# Use NullPool to avoid connection reuse issues
+engine = create_engine(
+    DB_URI,
+    poolclass=NullPool,
+    connect_args={
+        "connect_timeout": 10,
+        "keepalives": 1,
+        "keepalives_idle": 30,
+        "keepalives_interval": 10,
+        "keepalives_count": 5,
+    }
+)
 
 PDFKIT_CONFIG = pdfkit.configuration(wkhtmltopdf="/usr/bin/wkhtmltopdf")
 
-
-def safe_read_sql(query, params=None, retries=3, delay=3):
+ 
+def safe_read_sql(query, params=None, retries=5, delay=3):
     """Executes SQL query with retries for transient DB disconnects"""
     for attempt in range(retries):
         try:
+            # Create fresh connection each time
             with engine.connect() as conn:
-                return pd.read_sql(query, conn, params=params)
+                result = pd.read_sql(query, conn, params=params)
+                return result
+                
         except OperationalError as e:
-            print(f"⚠️ Database error (attempt {attempt+1}/{retries}): {e}")
-            time.sleep(delay)
+            error_str = str(e)
+            print(f"⚠️ Database error (attempt {attempt+1}/{retries}): {error_str[:100]}")
+            
+            if attempt == retries - 1:
+                raise RuntimeError(f"❌ Query failed after {retries} retries: {error_str[:200]}")
+            
+            # Exponential backoff: 3s, 6s, 12s, 24s, 48s
+            wait_time = delay * (2 ** attempt)
+            print(f"   ⏳ Waiting {wait_time}s before retry...")
+            time.sleep(wait_time)
+            
+            # Dispose engine on connection errors
+            if "EOF" in error_str or "closed" in error_str.lower() or "terminated" in error_str.lower():
+                print("   🔄 Recreating database connection pool...")
+                engine.dispose()
+                
         except Exception as e:
             print(f"⚠️ Unexpected error (attempt {attempt+1}/{retries}): {e}")
+            if attempt == retries - 1:
+                raise RuntimeError(f"❌ Query failed: {e}")
             time.sleep(delay)
+    
     raise RuntimeError("❌ Query failed after multiple retries.")
+
 
 def get_unique_stores():
     """Fetch all unique store names"""
@@ -67,6 +101,7 @@ def plot_chart(df, x_col, y_col, title, top_n=10):
     buffer.seek(0)
     img_base64 = base64.b64encode(buffer.read()).decode("utf-8")
     return f'<img src="data:image/png;base64,{img_base64}" style="display:block;margin:auto;width:90%;max-height:500px;">'
+
 
 def generate_store_report(store_name):
     """Generate weekly PDF report for one store"""
@@ -179,7 +214,7 @@ def generate_store_report(store_name):
                         ((SUM(b."totalProductPrice") - SUM(COALESCE(b."costPrice", 0) * b."quantity")) / SUM(b."totalProductPrice") * 100)::numeric
                     ELSE 0
                 END, 2
-            ) AS PROFIT_MARGIN
+            ) AS profit_margin
         FROM "billing_data" b
         WHERE b."storeName" = %s
           AND b."orderDate" > (SELECT max_date FROM latest_date) - INTERVAL '7 days'
@@ -213,7 +248,7 @@ def generate_store_report(store_name):
                         ((SUM(b."totalProductPrice") - SUM(COALESCE(b."costPrice", 0) * b."quantity")) / SUM(b."totalProductPrice") * 100)::numeric
                     ELSE 0
                 END, 2
-            ) AS PROFIT_MARGIN
+            ) AS profit_margin
         FROM "billing_data" b
         WHERE b."storeName" = %s
           AND b."orderDate" > (SELECT max_date FROM latest_date) - INTERVAL '7 days'
@@ -247,7 +282,7 @@ def generate_store_report(store_name):
                         ((SUM(b."totalProductPrice") - SUM(COALESCE(b."costPrice", 0) * b."quantity")) / SUM(b."totalProductPrice") * 100)::numeric
                     ELSE 0
                 END, 2
-            ) AS PROFIT_MARGIN
+            ) AS profit_margin
         FROM "billing_data" b
         WHERE b."storeName" = %s
           AND b."orderDate" > (SELECT max_date FROM latest_date) - INTERVAL '7 days'
@@ -270,28 +305,33 @@ def generate_store_report(store_name):
             if 'profit_margin' in df.columns:
                 df['profit_margin'] = df['profit_margin'].astype(str) + '%'
 
-    # === Query for Total Sales, Total Cost, Total Profit, and Profit Margin% ===
+    # === MODIFIED: Query for Total Sales, Total Cost, Total Profit, and AVERAGE Profit Margin% ===
     total_sales_profit_query = """
         WITH latest_date AS (
             SELECT MAX("orderDate")::date AS max_date
             FROM "billing_data"
             WHERE "storeName" = %s
+        ),
+        item_margins AS (
+            SELECT 
+                "totalProductPrice",
+                COALESCE("costPrice", 0) * "quantity" AS item_cost,
+                CASE 
+                    WHEN "totalProductPrice" > 0 THEN
+                        (("totalProductPrice" - COALESCE("costPrice", 0) * "quantity") / "totalProductPrice" * 100)
+                    ELSE 0
+                END AS item_profit_margin
+            FROM "billing_data"
+            WHERE "storeName" = %s
+              AND "orderDate" > (SELECT max_date FROM latest_date) - INTERVAL '7 days'
+              AND "orderDate" <= (SELECT max_date FROM latest_date)
         )
         SELECT 
             ROUND(SUM("totalProductPrice")::numeric, 2) AS total_weekly_sales,
-            ROUND(SUM(COALESCE("costPrice", 0) * "quantity")::numeric, 2) AS total_weekly_cost,
-            ROUND((SUM("totalProductPrice") - SUM(COALESCE("costPrice", 0) * "quantity"))::numeric, 2) AS total_weekly_profit,
-            ROUND(
-                CASE 
-                    WHEN SUM("totalProductPrice") > 0 THEN
-                        ((SUM("totalProductPrice") - SUM(COALESCE("costPrice", 0) * "quantity")) / SUM("totalProductPrice") * 100)::numeric
-                    ELSE 0
-                END, 2
-            ) AS profit_margin_percent
-        FROM "billing_data"
-        WHERE "storeName" = %s
-          AND "orderDate" > (SELECT max_date FROM latest_date) - INTERVAL '7 days'
-          AND "orderDate" <= (SELECT max_date FROM latest_date);
+            ROUND(SUM(item_cost)::numeric, 2) AS total_weekly_cost,
+            ROUND((SUM("totalProductPrice") - SUM(item_cost))::numeric, 2) AS total_weekly_profit,
+            ROUND(AVG(item_profit_margin)::numeric, 2) AS avg_profit_margin_percent
+        FROM item_margins;
     """
     
     total_sales_profit_df = safe_read_sql(total_sales_profit_query, params=(store_name, store_name))
@@ -300,19 +340,19 @@ def generate_store_report(store_name):
         total_weekly_sales = float(total_sales_profit_df["total_weekly_sales"].iloc[0])
         total_weekly_cost = float(total_sales_profit_df["total_weekly_cost"].iloc[0]) if total_sales_profit_df["total_weekly_cost"].iloc[0] is not None else 0.0
         total_weekly_profit = float(total_sales_profit_df["total_weekly_profit"].iloc[0]) if total_sales_profit_df["total_weekly_profit"].iloc[0] is not None else 0.0
-        profit_margin_percent = float(total_sales_profit_df["profit_margin_percent"].iloc[0]) if total_sales_profit_df["profit_margin_percent"].iloc[0] is not None else 0.0
+        avg_profit_margin_percent = float(total_sales_profit_df["avg_profit_margin_percent"].iloc[0]) if total_sales_profit_df["avg_profit_margin_percent"].iloc[0] is not None else 0.0
     else:
         total_weekly_sales = 0.0
         total_weekly_cost = 0.0
         total_weekly_profit = 0.0
-        profit_margin_percent = 0.0
+        avg_profit_margin_percent = 0.0
 
     # --- Charts ---
     brand_chart = plot_chart(brand_df, "brandName", "total_sales", "Top 10 Brands by Sales")
     category_chart = plot_chart(category_df, "categoryName", "total_sales", "Top 10 Categories by Sales")
     product_chart = plot_chart(product_df, "productName", "total_sales", "Top 10 Products by Sales")
 
-    # --- HTML Template with Profit Display ---
+    # --- HTML Template with AVERAGE Profit Margin Display ---
     html_template = f"""
     <html>
     <head>
@@ -400,7 +440,7 @@ def generate_store_report(store_name):
     </head>
     <body>
         <img src="file:///home/azureuser/azure_analysis_algorithm/tns.png" class="logo" alt="Company Logo">
-        <h1>📊 Weekly Store Report — {store_name}</h1>
+        <h1>📊 Weekly Store Report – {store_name}</h1>
         <div class="date-range">Week: {week_start_str} to {week_end_str}</div>
         <h2>Total Weekly Sales: ₹{total_weekly_sales:,.2f}</h2>
         
@@ -408,8 +448,8 @@ def generate_store_report(store_name):
             <span class="profit-label">Total Profit:</span>
             <span class="profit-value">₹{total_weekly_profit:,.2f}</span>
             <span style="margin: 0 15px;">|</span>
-            <span class="profit-label">Profit Margin:</span>
-            <span class="profit-margin">{profit_margin_percent:.2f}%</span>
+            <span class="profit-label">Average Profit Margin:</span>
+            <span class="profit-margin">{avg_profit_margin_percent:.2f}%</span>
         </div>
         
         {comparison_text}
