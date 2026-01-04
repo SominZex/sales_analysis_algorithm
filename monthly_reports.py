@@ -309,7 +309,7 @@ def generate_store_report(store_name):
             if 'profit_margin' in df.columns:
                 df['profit_margin'] = df['profit_margin'].astype(str) + '%'
 
-    # === NEW: Query for Total Sales, Total Cost, Total Profit, and Profit Margin% ===
+    # === MODIFIED: Query for Total Sales, Total Cost, Total Profit, and AVERAGE Profit Margin% ===
     total_sales_profit_query = """
         WITH latest_date AS (
             SELECT MAX("orderDate")::date AS max_date
@@ -324,21 +324,26 @@ def generate_store_report(store_name):
                     THEN DATE_TRUNC('month', CURRENT_DATE - INTERVAL '1 month')
                     ELSE DATE_TRUNC('month', (SELECT max_date FROM latest_date))
                 END AS report_month
+        ),
+        item_margins AS (
+            SELECT 
+                "totalProductPrice",
+                COALESCE("costPrice", 0) * "quantity" AS item_cost,
+                CASE 
+                    WHEN "totalProductPrice" > 0 THEN
+                        (("totalProductPrice" - COALESCE("costPrice", 0) * "quantity") / "totalProductPrice" * 100)
+                    ELSE 0
+                END AS item_profit_margin
+            FROM "billing_data"
+            WHERE "storeName" = %s
+              AND DATE_TRUNC('month', "orderDate") = (SELECT report_month FROM target_month)
         )
         SELECT 
             ROUND(SUM("totalProductPrice")::numeric, 2) AS total_monthly_sales,
-            ROUND(SUM(COALESCE("costPrice", 0) * "quantity")::numeric, 2) AS total_monthly_cost,
-            ROUND((SUM("totalProductPrice") - SUM(COALESCE("costPrice", 0) * "quantity"))::numeric, 2) AS total_monthly_profit,
-            ROUND(
-                CASE 
-                    WHEN SUM("totalProductPrice") > 0 THEN
-                        ((SUM("totalProductPrice") - SUM(COALESCE("costPrice", 0) * "quantity")) / SUM("totalProductPrice") * 100)::numeric
-                    ELSE 0
-                END, 2
-            ) AS profit_margin_percent
-        FROM "billing_data"
-        WHERE "storeName" = %s
-          AND DATE_TRUNC('month', "orderDate") = (SELECT report_month FROM target_month);
+            ROUND(SUM(item_cost)::numeric, 2) AS total_monthly_cost,
+            ROUND((SUM("totalProductPrice") - SUM(item_cost))::numeric, 2) AS total_monthly_profit,
+            ROUND(AVG(item_profit_margin)::numeric, 2) AS avg_profit_margin_percent
+        FROM item_margins;
     """
     
     total_sales_profit_df = safe_read_sql(total_sales_profit_query, params=(store_name, store_name))
@@ -347,19 +352,19 @@ def generate_store_report(store_name):
         total_monthly_sales = float(total_sales_profit_df["total_monthly_sales"].iloc[0])
         total_monthly_cost = float(total_sales_profit_df["total_monthly_cost"].iloc[0]) if total_sales_profit_df["total_monthly_cost"].iloc[0] is not None else 0.0
         total_monthly_profit = float(total_sales_profit_df["total_monthly_profit"].iloc[0]) if total_sales_profit_df["total_monthly_profit"].iloc[0] is not None else 0.0
-        profit_margin_percent = float(total_sales_profit_df["profit_margin_percent"].iloc[0]) if total_sales_profit_df["profit_margin_percent"].iloc[0] is not None else 0.0
+        avg_profit_margin_percent = float(total_sales_profit_df["avg_profit_margin_percent"].iloc[0]) if total_sales_profit_df["avg_profit_margin_percent"].iloc[0] is not None else 0.0
     else:
         total_monthly_sales = 0.0
         total_monthly_cost = 0.0
         total_monthly_profit = 0.0
-        profit_margin_percent = 0.0
+        avg_profit_margin_percent = 0.0
 
     # --- Charts ---
     brand_chart = plot_chart(brand_df, "brandName", "total_sales", "Top 10 Brands by Sales")
     category_chart = plot_chart(category_df, "categoryName", "total_sales", "Top 10 Categories by Sales")
     product_chart = plot_chart(product_df, "productName", "total_sales", "Top 10 Products by Sales")
 
-    # --- HTML Template with Profit Display ---
+    # --- HTML Template with AVERAGE Profit Margin Display ---
     html_template = f"""
     <html>
     <head>
@@ -447,7 +452,7 @@ def generate_store_report(store_name):
     </head>
     <body>
         <img src="file:///home/azureuser/azure_analysis_algorithm/tns.png" class="logo" alt="Company Logo">
-        <h1>📊 Monthly Store Report — {store_name}</h1>
+        <h1>📊 Monthly Store Report – {store_name}</h1>
         <div class="date-range">Month: {month_start_str} to {month_end_str}</div>
         <h2>Total Monthly Sales: ₹{total_monthly_sales:,.2f}</h2>
         
@@ -455,8 +460,8 @@ def generate_store_report(store_name):
             <span class="profit-label">Total Profit:</span>
             <span class="profit-value">₹{total_monthly_profit:,.2f}</span>
             <span style="margin: 0 15px;">|</span>
-            <span class="profit-label">Profit Margin:</span>
-            <span class="profit-margin">{profit_margin_percent:.2f}%</span>
+            <span class="profit-label">Average Profit Margin:</span>
+            <span class="profit-margin">{avg_profit_margin_percent:.2f}%</span>
         </div>
         
         {comparison_text}
