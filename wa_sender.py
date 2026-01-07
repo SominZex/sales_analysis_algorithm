@@ -451,61 +451,122 @@ class WhatsAppSender:
 
     def verify_message_sent(self, page, pdf_filename, initial_state, timeout=30):
         """
-        SIMPLIFIED: Quick verification - just check dialog closed and no errors
+        BULLETPROOF: Check if a NEW message with PDF was sent (not old messages)
         Returns: (success, reason)
         """
         print("\n" + "="*60)
-        print("QUICK SEND VERIFICATION")
+        print("VERIFYING NEW PDF MESSAGE WAS SENT")
+        print("="*60)
+        print(f"Initial state: {initial_state['total_outgoing']} outgoing messages")
+        print(f"Must detect: NEW message after position {initial_state['total_outgoing']}")
         print("="*60)
         
         # Wait for WhatsApp to process
         print("Waiting for send to complete...")
-        time.sleep(8)
+        time.sleep(10)
         
-        # Check 1: Is the send dialog closed?
-        dialog_selectors = [
-            'div[role="dialog"]',
-            'div[data-testid="media-viewer"]',
-        ]
+        # Take screenshot for debugging
+        page.screenshot(path="after_send.png")
         
-        dialog_still_open = False
-        for sel in dialog_selectors:
+        # CRITICAL: Get current message count
+        try:
+            current_outgoing_count = page.locator('div.message-out').count()
+            print(f"\nCurrent outgoing messages: {current_outgoing_count}")
+            
+            if current_outgoing_count <= initial_state['total_outgoing']:
+                print(f"❌ Message count did NOT increase!")
+                print(f"   Expected: >{initial_state['total_outgoing']}")
+                print(f"   Got: {current_outgoing_count}")
+                page.screenshot(path="no_new_message.png")
+                return False, f"No new message detected (still {current_outgoing_count})"
+            
+            print(f"✓ Message count increased: {initial_state['total_outgoing']} → {current_outgoing_count}")
+            print(f"✓ New messages: +{current_outgoing_count - initial_state['total_outgoing']}")
+            
+        except Exception as e:
+            print(f"❌ Error counting messages: {e}")
+            return False, f"Could not verify message count: {e}"
+        
+        # Now check the NEWEST message (the one we just sent)
+        try:
+            print(f"\nExamining the NEWEST outgoing message (position {current_outgoing_count})...")
+            outgoing_messages = page.locator('div.message-out').all()
+            
+            if len(outgoing_messages) == 0:
+                print("❌ No outgoing messages found at all")
+                return False, "No outgoing messages found"
+            
+            # Get the LAST message (the newest one)
+            newest_message = outgoing_messages[-1]
+            
+            # Check 1: Does it have a document icon?
+            doc_icon_count = newest_message.locator('span[data-icon="document"]').count()
+            has_document_icon = doc_icon_count > 0
+            
+            print(f"  Document icon in newest message: {has_document_icon}")
+            
+            # Check 2: Does it contain the PDF filename?
             try:
-                if page.locator(sel).count() > 0:
-                    dialog_still_open = True
-                    break
+                newest_msg_text = newest_message.inner_text()
+                has_pdf_filename = pdf_filename in newest_msg_text
+                print(f"  PDF filename in newest message: {has_pdf_filename}")
+                if has_pdf_filename:
+                    print(f"    Found: '{pdf_filename}'")
             except:
-                pass
-        
-        if dialog_still_open:
-            print("⚠️  Send dialog still open after 8s")
-        else:
-            print("✓ Send dialog closed")
-        
-        # Check 2: Any error messages?
-        has_error, error_msg = self.check_for_send_errors(page)
-        if has_error:
-            print(f"❌ Error detected: {error_msg}")
-            page.screenshot(path="send_error.png")
-            return False, f"Send error: {error_msg}"
-        
-        # Check 3: Did message count increase?
-        current_outgoing = page.locator('div.message-out').count()
-        if current_outgoing > initial_state['total_outgoing']:
-            print(f"✓ Message count increased ({initial_state['total_outgoing']} → {current_outgoing})")
-        
-        # Wait a bit more and check for delayed errors
-        time.sleep(5)
-        has_error, error_msg = self.check_for_send_errors(page)
-        if has_error:
-            print(f"❌ Delayed error detected: {error_msg}")
-            page.screenshot(path="send_error_delayed.png")
-            return False, f"Delayed error: {error_msg}"
-        
-        # Success!
-        print("✓ No errors detected")
-        page.screenshot(path="verification_success.png")
-        return True, "Send completed without errors"
+                has_pdf_filename = False
+                print(f"  Could not read message text")
+            
+            # Check 3: Does it have an error icon?
+            error_icon_count = newest_message.locator('span[data-icon="error"]').count()
+            has_error_icon = error_icon_count > 0
+            print(f"  Error icon in newest message: {has_error_icon}")
+            
+            # Check 4: Compare with the message we saw before
+            try:
+                current_html = newest_message.inner_html()[:200]
+                is_different = (current_html != initial_state['last_outgoing_html'])
+                print(f"  Message is different from before: {is_different}")
+            except:
+                is_different = True  # Assume different if we can't compare
+            
+            # DECISION LOGIC
+            print("\n" + "="*50)
+            print("VERIFICATION RESULTS:")
+            print("="*50)
+            
+            # If has error icon, definitely failed
+            if has_error_icon:
+                print("❌ FAILED: Newest message has ERROR icon")
+                page.screenshot(path="message_has_error.png")
+                return False, "Newest message has error icon - send failed"
+            
+            # If has document icon AND (has filename OR is different from before), SUCCESS
+            if has_document_icon and (has_pdf_filename or is_different):
+                print("✅ SUCCESS: Newest message has document icon")
+                if has_pdf_filename:
+                    print(f"   AND contains PDF filename: {pdf_filename}")
+                if is_different:
+                    print("   AND is different from previous last message")
+                page.screenshot(path="verification_success.png")
+                return True, "New PDF message verified with document icon"
+            
+            # If has document icon but same as before, might be old message
+            if has_document_icon and not is_different:
+                print("⚠️  WARNING: Has document icon but message looks same as before")
+                print("   This might be the old message, not a new one")
+                page.screenshot(path="possible_old_message.png")
+                return False, "Document found but appears to be old message"
+            
+            # No document icon - definitely failed
+            print("❌ FAILED: Newest message does NOT have document icon")
+            print("   This means only text was sent, not the PDF")
+            page.screenshot(path="no_document_icon.png")
+            return False, "Newest message has no document icon - PDF not sent"
+            
+        except Exception as e:
+            print(f"❌ Error examining newest message: {e}")
+            page.screenshot(path="verification_error.png")
+            return False, f"Verification error: {e}"
 
     def find_attach_button(self, page, max_wait=30):
         """Robust attach button finder"""
