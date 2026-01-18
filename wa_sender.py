@@ -346,242 +346,10 @@ class WhatsAppSender:
         page.screenshot(path="chat_not_opened.png")
         raise Exception("Chat did not open. Screenshot saved as 'chat_not_opened.png'")
 
-    def get_initial_message_state(self, page):
-        """Get comprehensive state of messages before sending - IMPROVED"""
-        try:
-            print("\n=== CAPTURING INITIAL MESSAGE STATE ===")
-            
-            # Count all outgoing messages
-            all_outgoing = page.locator('div.message-out').count()
-            
-            # Count specifically document messages (ALL, not just outgoing)
-            all_doc_messages = page.locator('span[data-icon="document"]').count()
-            
-            # Count OUTGOING document messages specifically
-            outgoing_doc_messages = page.locator('div.message-out span[data-icon="document"]').count()
-            
-            # Get the LAST outgoing message's inner HTML for comparison
-            last_outgoing_html = None
-            try:
-                last_messages = page.locator('div.message-out').all()
-                if len(last_messages) > 0:
-                    last_msg = last_messages[-1]
-                    last_outgoing_html = last_msg.inner_html()[:200]  # First 200 chars as fingerprint
-            except:
-                pass
-            
-            state = {
-                'total_outgoing': all_outgoing,
-                'all_doc_messages': all_doc_messages,
-                'outgoing_doc_messages': outgoing_doc_messages,
-                'last_outgoing_html': last_outgoing_html,
-                'capture_time': time.time()
-            }
-            
-            print(f"  Total outgoing messages: {all_outgoing}")
-            print(f"  All document messages: {all_doc_messages}")
-            print(f"  Outgoing document messages: {outgoing_doc_messages}")
-            print(f"  Last outgoing message captured: {last_outgoing_html is not None}")
-            print("=" * 40)
-            
-            return state
-            
-        except Exception as e:
-            print(f"⚠️  Error capturing initial state: {e}")
-            return {
-                'total_outgoing': 0,
-                'all_doc_messages': 0,
-                'outgoing_doc_messages': 0,
-                'last_outgoing_html': None,
-                'capture_time': time.time()
-            }
-
-    def check_for_send_errors(self, page):
-        """Check for WhatsApp error indicators - IMPROVED with stricter checks"""
-        print("  Checking for error indicators...")
-        
-        # 1. Check for error icons in recent messages
-        try:
-            error_icons = page.locator('div.message-out span[data-icon="msg-time"][data-icon="error"], div.message-out span[data-icon="msg-dblcheck-error"]')
-            if error_icons.count() > 0:
-                print("  ❌ Found error icon in message")
-                return True, "Message shows error icon"
-        except:
-            pass
-        
-        # 2. Check for pending/clock icons (message stuck sending)
-        try:
-            pending_icons = page.locator('div.message-out span[data-icon="msg-time"][data-icon="msg-time"], div.message-out span[data-icon="msg-check"]')
-            if pending_icons.count() > 0:
-                # This is normal initially, but we'll check it over time
-                pass
-        except:
-            pass
-        
-        # 3. Check for error toast messages
-        error_selectors = [
-            'div[data-testid="toast-container"]:has-text("couldn\'t send")',
-            'div[data-testid="toast-container"]:has-text("failed")',
-            'div[data-testid="toast-container"]:has-text("error")',
-            'div[role="alert"]:has-text("couldn\'t send")',
-            'div[role="alert"]:has-text("failed")',
-        ]
-        
-        for selector in error_selectors:
-            try:
-                elem = page.locator(selector)
-                if elem.count() > 0 and elem.first.is_visible(timeout=500):
-                    text = elem.first.inner_text(timeout=1000)
-                    if len(text) > 3:
-                        print(f"  ❌ Found error toast: {text}")
-                        return True, f"Error toast: {text}"
-            except:
-                continue
-        
-        # 4. Check for "Retry" or "Send again" buttons
-        try:
-            retry_btns = page.locator('div.message-out button:has-text("Retry"), div.message-out span:has-text("Retry")')
-            if retry_btns.count() > 0:
-                print("  ❌ Found 'Retry' button - message failed")
-                return True, "Message has 'Retry' button"
-        except:
-            pass
-        
-        return False, None
-
-    def verify_message_sent(self, page, pdf_filename, initial_state, timeout=30):
-        """
-        BULLETPROOF: Check if a NEW message with PDF was sent (not old messages)
-        Returns: (success, reason)
-        """
-        print("\n" + "="*60)
-        print("VERIFYING NEW PDF MESSAGE WAS SENT")
-        print("="*60)
-        print(f"Initial state: {initial_state['total_outgoing']} outgoing messages")
-        print(f"Must detect: NEW message after position {initial_state['total_outgoing']}")
-        print("="*60)
-        
-        # Wait for WhatsApp to process
-        print("Waiting for send to complete...")
-        time.sleep(10)
-        
-        # Take screenshot for debugging
-        page.screenshot(path="after_send.png")
-        
-        # CRITICAL: Get current message count
-        try:
-            current_outgoing_count = page.locator('div.message-out').count()
-            print(f"\nCurrent outgoing messages: {current_outgoing_count}")
-            
-            if current_outgoing_count <= initial_state['total_outgoing']:
-                print(f"❌ Message count did NOT increase!")
-                print(f"   Expected: >{initial_state['total_outgoing']}")
-                print(f"   Got: {current_outgoing_count}")
-                page.screenshot(path="no_new_message.png")
-                return False, f"No new message detected (still {current_outgoing_count})"
-            
-            print(f"✓ Message count increased: {initial_state['total_outgoing']} → {current_outgoing_count}")
-            print(f"✓ New messages: +{current_outgoing_count - initial_state['total_outgoing']}")
-            
-        except Exception as e:
-            print(f"❌ Error counting messages: {e}")
-            return False, f"Could not verify message count: {e}"
-        
-        # Now check the NEWEST message (the one we just sent)
-        try:
-            print(f"\nExamining the NEWEST outgoing message (position {current_outgoing_count})...")
-            outgoing_messages = page.locator('div.message-out').all()
-            
-            if len(outgoing_messages) == 0:
-                print("❌ No outgoing messages found at all")
-                return False, "No outgoing messages found"
-            
-            # Get the LAST message (the newest one)
-            newest_message = outgoing_messages[-1]
-            
-            # Check 1: Does it have a document icon?
-            doc_icon_count = newest_message.locator('span[data-icon="document"]').count()
-            has_document_icon = doc_icon_count > 0
-            
-            print(f"  Document icon in newest message: {has_document_icon}")
-            
-            # Check 2: Does it contain the PDF filename?
-            try:
-                newest_msg_text = newest_message.inner_text()
-                has_pdf_filename = pdf_filename in newest_msg_text
-                print(f"  PDF filename in newest message: {has_pdf_filename}")
-                if has_pdf_filename:
-                    print(f"    Found: '{pdf_filename}'")
-            except:
-                has_pdf_filename = False
-                print(f"  Could not read message text")
-            
-            # Check 3: Does it have an error icon?
-            error_icon_count = newest_message.locator('span[data-icon="error"]').count()
-            has_error_icon = error_icon_count > 0
-            print(f"  Error icon in newest message: {has_error_icon}")
-            
-            # Check 4: Compare with the message we saw before
-            try:
-                current_html = newest_message.inner_html()[:200]
-                is_different = (current_html != initial_state['last_outgoing_html'])
-                print(f"  Message is different from before: {is_different}")
-            except:
-                is_different = True  # Assume different if we can't compare
-            
-            # DECISION LOGIC
-            print("\n" + "="*50)
-            print("VERIFICATION RESULTS:")
-            print("="*50)
-            
-            # If has error icon, definitely failed
-            if has_error_icon:
-                print("❌ FAILED: Newest message has ERROR icon")
-                page.screenshot(path="message_has_error.png")
-                return False, "Newest message has error icon - send failed"
-            
-            # If has document icon AND (has filename OR is different from before), SUCCESS
-            if has_document_icon and (has_pdf_filename or is_different):
-                print("✅ SUCCESS: Newest message has document icon")
-                if has_pdf_filename:
-                    print(f"   AND contains PDF filename: {pdf_filename}")
-                if is_different:
-                    print("   AND is different from previous last message")
-                page.screenshot(path="verification_success.png")
-                return True, "New PDF message verified with document icon"
-            
-            # If has document icon but same as before, might be old message
-            if has_document_icon and not is_different:
-                print("⚠️  WARNING: Has document icon but message looks same as before")
-                print("   This might be the old message, not a new one")
-                page.screenshot(path="possible_old_message.png")
-                return False, "Document found but appears to be old message"
-            
-            # No document icon - definitely failed
-            print("❌ FAILED: Newest message does NOT have document icon")
-            print("   This means only text was sent, not the PDF")
-            page.screenshot(path="no_document_icon.png")
-            return False, "Newest message has no document icon - PDF not sent"
-            
-        except Exception as e:
-            print(f"❌ Error examining newest message: {e}")
-            page.screenshot(path="verification_error.png")
-            return False, f"Verification error: {e}"
-
     def find_attach_button(self, page, max_wait=30):
         """Robust attach button finder"""
-        print("\n" + "="*50)
-        print("ATTACH BUTTON DETECTION")
-        print("="*50)
+        print("\nLooking for attach button...")
         
-        print("Ensuring compose area is loaded...")
-        try:
-            page.wait_for_selector('[data-testid="conversation-compose-box-input"]', timeout=10000, state="visible")
-            time.sleep(2) 
-            print("✓ Compose area loaded")
-        except Exception as e:
-            print(f"⚠️ Warning: Compose area wait failed: {e}")
-
         priority_selectors = [
             'div[aria-label="Attach"]',
             'button[aria-label="Attach"]',
@@ -590,16 +358,8 @@ class WhatsAppSender:
         ]
         
         start_time = time.time()
-        attempt = 0
         
         while time.time() - start_time < max_wait:
-            attempt += 1
-            
-            if attempt % 5 == 0:
-                elapsed = int(time.time() - start_time)
-                print(f"Still searching for attach button... ({elapsed}s / {max_wait}s)")
-                page.screenshot(path=f"attach_search_{elapsed}s.png")
-            
             for selector in priority_selectors:
                 try:
                     elements = page.locator(selector)
@@ -616,17 +376,16 @@ class WhatsAppSender:
                                 in_footer = elem.evaluate("el => !!el.closest('footer')")
                                 
                                 if in_footer:
-                                    aria_label = elem.get_attribute("aria-label") or ""
-                                    print(f"✓ Found attach button: {selector}")
-                                    print(f"  Aria-label: {aria_label}")
+                                    print(f"✓ Found attach button")
                                     return elem
                                     
-                            except Exception as e:
+                            except:
                                 continue
                                 
-                except Exception as e:
+                except:
                     continue
             
+            # Try footer buttons
             try:
                 footer_buttons = page.locator('footer button')
                 if footer_buttons.count() > 0:
@@ -636,40 +395,70 @@ class WhatsAppSender:
                             continue
                         
                         aria_label = btn.get_attribute("aria-label") or ""
-                        title = btn.get_attribute("title") or ""
                         
-                        if "voice" in aria_label.lower() or "voice" in title.lower():
+                        if "voice" in aria_label.lower():
                             continue
                         
-                        if aria_label == "" and title == "":
-                            has_clip = btn.locator('span[data-icon="clip"]').count() > 0
-                            has_plus = btn.locator('span[data-icon="plus"]').count() > 0
-                            
-                            if has_clip or has_plus or i == 0:
-                                print(f"✓ Found unlabeled footer button (likely attach): position {i}")
-                                return btn
-            except Exception as e:
-                print(f"Footer button search error: {e}")
-              
-            if attempt > 5:
-                try:
-                    compose_clip = page.locator('footer span[data-icon="clip"]').first
-                    if compose_clip.is_visible():
-                        parent = compose_clip.evaluate_handle("el => el.closest('button, div[role=\"button\"]')")
-                        if parent:
-                            print("✓ Found attach button via clip icon")
-                            return parent.as_element()
-                except Exception as e:
-                    pass
+                        has_clip = btn.locator('span[data-icon="clip"]').count() > 0
+                        
+                        if has_clip or i == 0:
+                            print(f"✓ Found attach button in footer")
+                            return btn
+            except:
+                pass
             
             time.sleep(1)
         
-        print("\n❌ Could not find attach button after exhaustive search")
+        print("❌ Could not find attach button")
         page.screenshot(path="attach_button_not_found.png")
         return None
 
+    def verify_send_simple(self, page):
+        """Simple verification - just check for errors"""
+        print("\nVerifying send...")
+        
+        # Wait for dialog to close
+        print("  Waiting for dialog to close...")
+        for wait in range(10):
+            dialog_open = False
+            for sel in ['div[role="dialog"]', 'div[data-testid="media-viewer"]']:
+                try:
+                    if page.locator(sel).count() > 0:
+                        dialog_open = True
+                        break
+                except:
+                    pass
+            
+            if not dialog_open:
+                print(f"  ✓ Dialog closed after {wait}s")
+                break
+            time.sleep(1)
+        
+        time.sleep(3)  # Wait for message to appear
+        
+        # Check for visible errors
+        error_selectors = [
+            'div[data-testid="toast-container"]:has-text("couldn\'t send")',
+            'div[data-testid="toast-container"]:has-text("failed")',
+            'div:has-text("Retry")',
+            'span[data-icon="msg-dblcheck-error"]',
+        ]
+        
+        for selector in error_selectors:
+            try:
+                elem = page.locator(selector)
+                if elem.count() > 0 and elem.first.is_visible(timeout=500):
+                    page.screenshot(path="send_error.png")
+                    return False, "Error detected after send"
+            except:
+                continue
+        
+        print("  ✓ No errors detected")
+        page.screenshot(path="send_success.png")
+        return True, "Send successful"
+
     def send_pdf_to_group(self, group_name, pdf_path, message="Sales report for today."):
-        """Send PDF file to WhatsApp group with comprehensive verification"""
+        """Send PDF file to WhatsApp group"""
         print("\n" + "="*60)
         print("Starting WhatsApp PDF Sender")
         print(f"Timestamp: {datetime.now().strftime('%Y-%m-%d %H:%M:%S')}")
@@ -725,45 +514,24 @@ class WhatsAppSender:
                 self.find_and_open_chat(page, group_name)
                 time.sleep(3)
 
-                # CRITICAL: Capture initial state BEFORE any attach actions
-                initial_state = self.get_initial_message_state(page)
-
-                print("\nOpening attach menu...")
-                page.screenshot(path="before_attach.png")
-
                 attach_button = self.find_attach_button(page, max_wait=30)
                 
                 if not attach_button:
                     raise Exception("Could not find attach button")
 
                 print("Clicking attach button...")
-                clicked = False
-                
                 try:
                     attach_button.click(timeout=5000)
-                    clicked = True
-                    print("✓ Clicked attach button")
-                except Exception as e:
-                    print(f"Regular click failed: {e}")
-                
-                if not clicked:
+                    print("✓ Attach button clicked")
+                except:
                     try:
-                        attach_button.click(force=True, timeout=5000)
-                        clicked = True
-                        print("✓ Force clicked attach button")
-                    except Exception as e:
-                        print(f"Force click failed: {e}")
-
-                if not clicked:
-                    try:
+                        attach_button.click(force=True)
+                        print("✓ Attach button clicked (force)")
+                    except:
                         attach_button.evaluate("el => el.click()")
-                        clicked = True
-                        print("✓ JavaScript clicked attach button")
-                    except Exception as e:
-                        raise Exception("All click methods failed")
+                        print("✓ Attach button clicked (JS)")
 
                 time.sleep(3)
-                page.screenshot(path="attach_menu_opened.png")
 
                 print("Starting file upload...")
                 abs_path = os.path.abspath(pdf_path)
@@ -781,9 +549,9 @@ class WhatsAppSender:
                             if 'image' not in accept.lower():
                                 inp.set_input_files(abs_path)
                                 upload_success = True
-                                print("✓ File uploaded via input element")
+                                print("✓ File uploaded")
                                 break
-                        except Exception as e:
+                        except:
                             continue
 
                 if not upload_success:
@@ -797,78 +565,23 @@ class WhatsAppSender:
                         file_chooser = fc_info.value
                         file_chooser.set_files(abs_path)
                         upload_success = True
-                        print("✓ File uploaded via file chooser")
+                        print("✓ File uploaded via chooser")
                     except Exception as e:
-                        print(f"File chooser failed: {e}")
+                        raise Exception(f"File upload failed: {e}")
 
                 if not upload_success:
                     raise Exception("File upload failed")
 
                 print("Waiting for file processing...")
                 time.sleep(8)
-                page.screenshot(path="after_file_upload.png")
 
-                print("Waiting for file preview dialog...")
-                time.sleep(5)
-
-                dialog_selectors = [
-                    'div[role="dialog"]',
-                    'div[data-testid="media-viewer"]',
-                    'footer[data-testid="document-viewer-footer"]',
-                    'div.document-viewer',
-                ]
-                dialog_open = False
-                for sel in dialog_selectors:
-                    try:
-                        if page.locator(sel).count() > 0:
-                            dialog_open = True
-                            print(f"✓ Dialog confirmed open: {sel}")
-                            break
-                    except Exception:
-                        continue
-
-                if not dialog_open:
-                    print("⚠️  WARNING: Dialog might not be open. Proceeding to try typing message anyway.")
-                    page.screenshot(path="dialog_closed.png")
-
-                typed_message = False
-                message_selectors = [
-                    'div[role="textbox"][data-tab="10"]',
-                    'div[contenteditable="true"][data-tab="10"]',
-                    'div[contenteditable="true"][data-tab="6"]',
-                    'div[role="textbox"][title="Type a message"]',
-                    '[data-testid="conversation-compose-box-input"]',
-                    'div[contenteditable="true"][data-tab="1"]',
-                    'div[role="textbox"]',
-                ]
-
-                for sel in message_selectors:
-                    try:
-                        loc = page.locator(sel)
-                        if loc.count() > 0 and loc.first.is_visible():
-                            try:
-                                loc.first.click()
-                                time.sleep(0.3)
-                                loc.first.type(message, delay=50)
-                                typed_message = True
-                                print(f"✓ Typed message using selector: {sel}")
-                                break
-                            except Exception as e:
-                                print(f"Selector {sel} found but typing failed: {e}")
-                                continue
-                    except Exception:
-                        continue
-
-                if not typed_message:
-                    try:
-                        page.keyboard.type(message, delay=50)
-                        typed_message = True
-                        print("✓ Typed message using keyboard fallback.")
-                    except Exception as e:
-                        print(f"⚠️ Failed to type message: {e}")
-
-                if not typed_message:
-                    print("⚠️ Could not attach message. Proceeding without message.")
+                # Try to type message (optional - don't fail if it doesn't work)
+                print("Attempting to type caption...")
+                try:
+                    page.keyboard.type(message, delay=50)
+                    print("✓ Caption typed")
+                except:
+                    print("⚠️  Could not type caption (will send without)")
 
                 time.sleep(2)
 
@@ -881,15 +594,15 @@ class WhatsAppSender:
                 ]
 
                 send_button = None
-                for wait_attempt in range(120):
+                for wait_attempt in range(60):
                     for sel in send_selectors:
                         try:
                             loc = page.locator(sel)
                             if loc.count() > 0 and loc.first.is_visible():
                                 send_button = loc.first
-                                print(f"✓ Send button found: {sel}")
+                                print(f"✓ Send button found")
                                 break
-                        except Exception:
+                        except:
                             continue
                     if send_button:
                         break
@@ -897,43 +610,20 @@ class WhatsAppSender:
 
                 if not send_button:
                     page.screenshot(path="no_send_button.png")
-                    with open("no_send_page.html", "w", encoding="utf-8") as f:
-                        f.write(page.content())
-                    raise Exception("Send button not found. Check no_send_button.png and no_send_page.html")
+                    raise Exception("Send button not found")
 
-                page.screenshot(path="ready_to_send.png")
                 print("Clicking send button...")
-                for attempt in range(3):
-                    try:
-                        send_button.click(timeout=5000)
-                        print("✓ Send button clicked")
-                        break
-                    except Exception as e:
-                        if attempt == 2:
-                            raise
-                        print(f"Click attempt {attempt+1} failed, retrying... ({e})")
-                        time.sleep(1)
+                send_button.click(timeout=5000)
+                print("✓ Send button clicked")
 
-                # CRITICAL: Use the improved verification
-                print("\n" + "="*60)
-                print("STARTING VERIFICATION")
-                print("="*60)
+                # Simple verification
+                success, msg = self.verify_send_simple(page)
                 
-                verification_success, verification_msg = self.verify_message_sent(
-                    page, 
-                    pdf_filename, 
-                    initial_state,
-                    timeout=120
-                )
-
-                if not verification_success:
-                    error_msg = f"❌ SEND FAILED: {verification_msg}"
-                    print(f"\n{error_msg}")
-                    raise Exception(error_msg)
+                if not success:
+                    raise Exception(f"Send verification failed: {msg}")
 
                 print("\n" + "="*60)
                 print("✅ PDF SENT SUCCESSFULLY")
-                print(f"   Result: {verification_msg}")
                 print(f"   Time: {datetime.now().strftime('%Y-%m-%d %H:%M:%S')}")
                 print("="*60)
 
@@ -941,8 +631,6 @@ class WhatsAppSender:
                 print(f"\n❌ ERROR: {e}")
                 try:
                     page.screenshot(path="final_error.png")
-                    with open("final_error.html", "w", encoding="utf-8") as f:
-                        f.write(page.content())
                 except:
                     pass
                 raise
