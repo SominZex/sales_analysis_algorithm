@@ -1,4 +1,5 @@
 import os
+import sys
 import time
 from pathlib import Path
 from playwright.sync_api import sync_playwright
@@ -414,14 +415,15 @@ class WhatsAppSender:
         return None
 
     def verify_send_simple(self, page):
-        """Simple verification - just check for errors"""
+        """Simple verification - check dialog close AND checkmarks"""
         print("\nVerifying send...")
         
-        # Wait for dialog to close
+        # STEP 1: Wait for dialog to close
         print("  Waiting for dialog to close...")
-        for wait in range(10):
+        dialog_closed = False
+        for wait in range(15):
             dialog_open = False
-            for sel in ['div[role="dialog"]', 'div[data-testid="media-viewer"]']:
+            for sel in ['div[role="dialog"]', 'div[data-testid="media-viewer"]', 'div[data-testid="document-viewer"]']:
                 try:
                     if page.locator(sel).count() > 0:
                         dialog_open = True
@@ -431,31 +433,76 @@ class WhatsAppSender:
             
             if not dialog_open:
                 print(f"  ✓ Dialog closed after {wait}s")
+                dialog_closed = True
                 break
             time.sleep(1)
         
-        time.sleep(3)  # Wait for message to appear
+        if not dialog_closed:
+            page.screenshot(path="dialog_not_closed.png")
+            return False, "Dialog did not close - send failed"
         
-        # Check for visible errors
-        error_selectors = [
-            'div[data-testid="toast-container"]:has-text("couldn\'t send")',
-            'div[data-testid="toast-container"]:has-text("failed")',
-            'div:has-text("Retry")',
-            'span[data-icon="msg-dblcheck-error"]',
-        ]
+        time.sleep(5)  # Wait for message to appear and get checkmark
         
-        for selector in error_selectors:
+        # STEP 2: Wait for checkmark (proof of send)
+        print("  Waiting for delivery confirmation...")
+        checkmark_found = False
+        
+        for wait in range(30):  # Wait up to 30 seconds for checkmark
             try:
-                elem = page.locator(selector)
-                if elem.count() > 0 and elem.first.is_visible(timeout=500):
-                    page.screenshot(path="send_error.png")
-                    return False, "Error detected after send"
-            except:
-                continue
+                # Look for ANY checkmark in the last outgoing message
+                last_messages = page.locator('div.message-out').all()
+                if last_messages:
+                    last_msg = last_messages[-1]
+                    
+                    # Check for error icon in THIS message
+                    has_error_icon = last_msg.locator('span[data-icon="msg-dblcheck-error"], span[data-icon="error"]').count() > 0
+                    if has_error_icon:
+                        page.screenshot(path="message_has_error_icon.png")
+                        return False, "Last message has error icon"
+                    
+                    # Check for retry button in THIS message
+                    has_retry = last_msg.locator('span:has-text("Retry")').count() > 0
+                    if has_retry:
+                        page.screenshot(path="message_has_retry.png")
+                        return False, "Last message has retry button"
+                    
+                    # Check for any type of checkmark
+                    single_check = last_msg.locator('span[data-icon="msg-check"]').count() > 0
+                    double_check = last_msg.locator('span[data-icon="msg-dblcheck"]').count() > 0
+                    blue_check = last_msg.locator('span[data-icon="msg-dblcheck-ack"]').count() > 0
+                    
+                    if single_check or double_check or blue_check:
+                        print(f"  ✓ Checkmark found at {wait}s")
+                        checkmark_found = True
+                        break
+            except Exception as e:
+                if wait % 10 == 0:
+                    print(f"  Check at {wait}s...")
+            
+            time.sleep(1)
         
-        print("  ✓ No errors detected")
+        if not checkmark_found:
+            page.screenshot(path="no_checkmark.png")
+            
+            # Final check - see if last message has error
+            try:
+                last_messages = page.locator('div.message-out').all()
+                if last_messages:
+                    last_msg = last_messages[-1]
+                    has_error_icon = last_msg.locator('span[data-icon="msg-dblcheck-error"], span[data-icon="error"]').count() > 0
+                    has_retry = last_msg.locator('span:has-text("Retry")').count() > 0
+                    
+                    if has_error_icon or has_retry:
+                        page.screenshot(path="send_error_confirmed.png")
+                        return False, "Message failed - has error/retry indicator"
+            except:
+                pass
+            
+            return False, "No checkmark received after 30s - send likely failed"
+        
+        print("  ✓ Send verified with checkmark")
         page.screenshot(path="send_success.png")
-        return True, "Send successful"
+        return True, "Send successful with delivery confirmation"
 
     def send_pdf_to_group(self, group_name, pdf_path, message="Sales report for today."):
         """Send PDF file to WhatsApp group"""
