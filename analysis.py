@@ -29,6 +29,10 @@ from playwright.async_api import async_playwright
 import psycopg2
 import uuid
 from werkzeug.serving import make_server
+import os
+from dotenv import load_dotenv
+
+load_dotenv()
 
 
 app = dash.Dash(__name__)
@@ -69,21 +73,34 @@ HEADER_STYLE = {
 EMAIL_CONFIG = {
     'smtp_server': 'smtp.gmail.com',
     'smtp_port': 587,
-    'sender_email': 'mail',
-    'sender_password': 'app_pw',
-    'to': 'mail_mail',
-    'cc_recipients': ['list', 'of', 'mail'],
-    'tracking_host': 'http://<ip_server>:<port>',
-    'summary_recipient': 'email'
+    'sender_email': 'satpal@newshop.in',
+    'sender_password': 'outd pxir nvgc mwrp',
+    'to': 'data@newshop.in',
+    'cc_recipients': ['it@newshop.in', 'kamfranchise@newshop.in', 'mani@newshop.in',
+                      'bharti@newshop.in', 'fnb@newshop.in', 
+                      'kartikay.singh@newshop.in', 'vivek@newshop.in',
+                      'saurabh.parihar@newshop.in', 'paras.arora@newshop.in', 
+                      'sachin.rana@newshop.in', 'ravi.mishra@newshop.in', 
+                      'yogesh.mehta@newshop.in', 'charak@newshop.in', 
+                      'aastha@newshop.in', 'navdeep.sharma@newshop.in'],
+    'tracking_host': 'http://74.225.249.155:8000',
+    'summary_recipient': 'mani@newshop.in'
 }
 
-# PostgreSQL config
+
+DB_NAME = os.getenv("DB_NAME")
+DB_USER = os.getenv("DB_USER")
+DB_PASSWORD = os.getenv("DB_PASSWORD")
+DB_HOST = os.getenv("DB_HOST")
+DB_PORT = int(os.getenv("DB_PORT", 5432))
+
+
 PG_CONFIG = {
-    'dbname': 'db_name',
-    'user': 'user_name',
-    'password': 'pw',
-    'host': 'server_ip',
-    'port': "port"
+    "dbname": DB_NAME,
+    "user": DB_USER,
+    "password": DB_PASSWORD,
+    "host": DB_HOST,
+    "port": DB_PORT
 }
 
 
@@ -225,7 +242,7 @@ html.Div([
 
         ], style={'display': 'flex', 'justifyContent': 'center', 'gap': '20px', 'width': '100%'}),
         # --- Add the chart right below the tables ---
-        # html.Div(style={'height': '80px'}),
+        html.Div(style={'height': '80px'}),
         html.Div([
             dcc.Graph(
                 id='store-sales-chart',
@@ -243,7 +260,7 @@ html.Div([
 
     ], style=CARD_STYLE),
         # Category Performance Section
-        # html.Div(style={'height': '300px'}),
+        html.Div(style={'height': '700px'}),
 
         html.Div([
             html.H3("Category Performance", 
@@ -353,7 +370,7 @@ html.Div([
         ], style=CARD_STYLE),
 
 
-        html.Div(style={'height': '80px'}),
+        html.Div(style={'height': '300px'}),
 # Brand Performance Section
         html.Div([  
             html.H3("Brand Performance", 
@@ -443,7 +460,8 @@ html.Div([
         ], style={'display': 'flex', 'justifyContent': 'center', 'gap': '20px'}),
 
         # --- Add the chart right below the tables ---
-        html.Div(style={'height': '100px'}),
+        
+        html.Div(style={'height': '230px'}),
         html.Div([
             dcc.Graph(
                 id='brand-sales-chart',
@@ -461,7 +479,7 @@ html.Div([
     ], style=CARD_STYLE),
 
 
-    html.Div(style={'height': '600px'}),
+    html.Div(style={'height': '640px'}),
 
     # Product Performance Section
     html.Div([
@@ -560,7 +578,6 @@ html.Div([
         'max-width': '100%'
     }),
 
-    html.Div(style={'height': '500px'}),
 
         html.Div([
             dcc.Graph(
@@ -594,15 +611,68 @@ def log_event(recipient, report_date, event):
     cur.close()
     conn.close()
 
+
 async def save_pdf():
     os.makedirs("reports", exist_ok=True)
     yesterday = (datetime.now() - timedelta(days=1)).strftime("%Y-%m-%d")
     file_path = os.path.join("reports", f"sales_report_{yesterday}.pdf")
 
     async with async_playwright() as p:
-        browser = await p.chromium.launch()
+        browser = await p.chromium.launch(headless=True)
         page = await browser.new_page()
-        await page.goto("http://127.0.0.1:8050", wait_until="networkidle")
+        
+        # Set longer timeout
+        page.set_default_timeout(90000)
+        
+        print("Loading page...")
+        await page.goto("http://127.0.0.1:8050", wait_until="networkidle", timeout=60000)
+        
+        print("Waiting for data to load...")
+        
+        # Wait for the specific content that indicates data has loaded
+        # Wait for the total sales display to appear with actual data
+        try:
+            await page.wait_for_function(
+                """() => {
+                    const totalSales = document.querySelector('#total-sales-display');
+                    return totalSales && totalSales.textContent.includes('Total Sales');
+                }""",
+                timeout=30000
+            )
+            print("Total sales data loaded")
+        except:
+            print("Warning: Total sales not found, continuing...")
+        
+        # Wait for tables to have data (not just loading state)
+        try:
+            await page.wait_for_function(
+                """() => {
+                    const tables = document.querySelectorAll('table tbody tr');
+                    return tables.length > 5;
+                }""",
+                timeout=30000
+            )
+            print("Tables loaded with data")
+        except:
+            print("Warning: Tables may not be fully loaded")
+        
+        # Wait for charts to render (Plotly creates svg elements)
+        try:
+            await page.wait_for_selector('.js-plotly-plot .plotly', timeout=30000)
+            print("Charts loaded")
+        except:
+            print("Warning: Charts may not be fully loaded")
+        
+        # Additional wait to ensure everything is rendered
+        print("Waiting additional 20 seconds for complete rendering...")
+        await asyncio.sleep(20)
+        
+        # Verify content before generating PDF
+        content = await page.content()
+        if "Loading..." in content and "Total Sales" not in content:
+            print("WARNING: Page still showing loading state!")
+        
+        print("Generating PDF...")
         await page.pdf(
             path=file_path,
             format="A3",
@@ -800,7 +870,7 @@ async def generate_and_send_report():
     
     # Wait for server to be ready
     print("Waiting for server to start...")
-    max_retries = 30
+    max_retries = 60 
     for i in range(max_retries):
         try:
             response = requests.get("http://127.0.0.1:8050", timeout=5)
@@ -808,10 +878,16 @@ async def generate_and_send_report():
                 print("Server is ready!")
                 break
         except requests.exceptions.RequestException:
+            if i % 10 == 0:
+                print(f"Still waiting... ({i}s)")
             time.sleep(1)
     else:
         print("Server failed to start within timeout")
         return False
+    
+    # Give server more time to fully initialize
+    print("Waiting for server to fully initialize...")
+    time.sleep(10)
     
     try:
         # Generate PDF
@@ -830,6 +906,7 @@ async def generate_and_send_report():
     finally:
         # Terminate the process (this will kill the server)
         print("Shutting down server...")
+        time.sleep(2)
         os._exit(0)
 
 

@@ -8,8 +8,22 @@ from io import BytesIO
 from sqlalchemy import create_engine
 from sqlalchemy.exc import OperationalError
 from sqlalchemy.pool import NullPool
+from dotenv import load_dotenv
 
-DB_URI = "postgresql+psycopg2://<user>:<password>@<ip_address>/<db>"
+load_dotenv()
+
+def require_env(name: str) -> str:
+    value = os.getenv(name)
+    if not value:
+        raise RuntimeError(f"Missing required environment variable: {name}")
+    return value
+
+DB_URI = (
+    f"postgresql+psycopg2://"
+    f"{require_env('DB_USER')}:{require_env('DB_PASSWORD')}"
+    f"@{require_env('DB_HOST')}:{os.getenv('DB_PORT', '5432')}"
+    f"/{require_env('DB_NAME')}"
+)
 
 # Use NullPool to avoid connection reuse issues
 engine = create_engine(
@@ -21,8 +35,9 @@ engine = create_engine(
         "keepalives_idle": 30,
         "keepalives_interval": 10,
         "keepalives_count": 5,
-    }
+    },
 )
+
 
 PDFKIT_CONFIG = pdfkit.configuration(wkhtmltopdf="/usr/bin/wkhtmltopdf")
 

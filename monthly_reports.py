@@ -7,9 +7,30 @@ import time
 from io import BytesIO
 from sqlalchemy import create_engine
 from sqlalchemy.exc import OperationalError
+from dotenv import load_dotenv
 
-DB_URI = "postgresql+psycopg2://<username>:<password>@<server_ip>/sales_data"
-engine = create_engine(DB_URI, pool_pre_ping=True, pool_recycle=300)
+load_dotenv()
+
+def require_env(name: str) -> str:
+    value = os.getenv(name)
+    if not value:
+        raise RuntimeError(f"Missing required environment variable: {name}")
+    return value
+
+
+DB_URI = (
+    f"postgresql+psycopg2://"
+    f"{require_env('DB_USER')}:{require_env('DB_PASSWORD')}"
+    f"@{require_env('DB_HOST')}:{os.getenv('DB_PORT', '5432')}"
+    f"/{require_env('DB_NAME')}"
+)
+
+engine = create_engine(
+    DB_URI,
+    pool_pre_ping=True,
+    pool_recycle=300
+)
+
 
 PDFKIT_CONFIG = pdfkit.configuration(wkhtmltopdf="/usr/bin/wkhtmltopdf")
 

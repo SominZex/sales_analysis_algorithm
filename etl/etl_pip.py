@@ -8,8 +8,29 @@ import psycopg2
 import psycopg2.extras
 from datetime import datetime, date, timedelta
 import time
+import os
 import numpy as np
 import agg_insert
+from dotenv import load_dotenv
+
+load_dotenv()
+
+def require_env(name: str) -> str:
+    value = os.getenv(name)
+    if not value:
+        raise RuntimeError(f"Missing required environment variable: {name}")
+    return value
+
+
+DB_CONFIG = {
+    "host": require_env("DB_HOST"),
+    "port": int(os.getenv("DB_PORT", 5432)),
+    "database": require_env("DB_NAME"),
+    "user": require_env("DB_USER"),
+    "password": require_env("DB_PASSWORD"),
+}
+
+
 
 POSTGRES_COLUMNS = [
     "invoice", "storeInvoice", "orderDate", "time", "productId", "productName", "barcode",
@@ -26,7 +47,7 @@ BIGINT_COLUMNS = ["barcode"]
 NUMERIC_COLUMNS = ["GST", "CGSTRate", "SGSTRate", "acessAmount", "cess"]
 
 class CSVDownloader:
-    def __init__(self, base_url="https://api.example.in", username="user_name", password="password"):
+    def __init__(self, base_url="https://api.thenewshop.in", username="nssomin", password="nssomin"):
         self.base_url = base_url
         self.username = username
         self.password = password
@@ -136,10 +157,8 @@ def debug_date_formats(df: pd.DataFrame):
 def transform_data(df: pd.DataFrame) -> pd.DataFrame:
     print("Starting data transformation...")
     
-    # Debug the orderDate column first
     debug_date_formats(df)
     
-    # Drop productMrp
     if "productMrp" in df.columns:
         df = df.drop(columns=["productMrp"])
         print("Dropped column: productMrp")
@@ -166,12 +185,10 @@ def transform_data(df: pd.DataFrame) -> pd.DataFrame:
                 except Exception as e:
                     print(f"Format '{fmt}' failed: {e}")
         
-        # If no format worked, try pandas auto-detection
         if df['orderDate_parsed'].isna().all():
             print("Trying pandas auto-detection...")
             df['orderDate_parsed'] = pd.to_datetime(df['orderDate'], errors='coerce', infer_datetime_format=True)
         
-        # Convert to date and handle NaT
         df['orderDate'] = df['orderDate_parsed'].apply(lambda x: x.date() if pd.notnull(x) else None)
         df = df.drop(columns=['orderDate_parsed'])
         
@@ -179,21 +196,17 @@ def transform_data(df: pd.DataFrame) -> pd.DataFrame:
         print(f"Final non-null orderDate values: {final_count}")
         print(f"Successfully converted: {final_count}/{original_count} dates")
         
-        # Show sample of converted dates
         sample_converted = df[df['orderDate'].notna()]['orderDate'].head(5).tolist()
         print(f"Sample converted dates: {sample_converted}")
 
-    # time -> HH:MM:SS string or None (take first 8 characters)
     if "time" in df.columns:
         print("Processing time column...")
-        df["time"] = df["time"].astype(str).str[:8]  # Take first 8 characters (HH:MM:SS)
+        df["time"] = df["time"].astype(str).str[:8]
         df["time"] = df["time"].replace(["nan", "NaT"], None)
         print(f"Sample time values: {df[df['time'].notna()]['time'].head(3).tolist()}")
 
-    # Process numeric columns more efficiently
     print("Processing numeric columns...")
     
-    # Integers / bigints - Convert directly to Python int
     for col in INTEGER_COLUMNS + BIGINT_COLUMNS:
         if col in df.columns:
             original_count = df[col].notna().sum()
@@ -202,7 +215,6 @@ def transform_data(df: pd.DataFrame) -> pd.DataFrame:
             final_count = df[col].notna().sum()
             print(f"  {col}: {final_count}/{original_count} values converted")
 
-    # Numeric columns - Convert to Python float
     for col in NUMERIC_COLUMNS:
         if col in df.columns:
             original_count = df[col].notna().sum()
@@ -212,8 +224,7 @@ def transform_data(df: pd.DataFrame) -> pd.DataFrame:
             print(f"  {col}: {final_count}/{original_count} values converted")
 
     print("Processing string columns...")
-  
-    # All other columns -> string, NaN -> None (vectorized)
+
     string_cols = [col for col in df.columns 
                    if col in POSTGRES_COLUMNS 
                    and col not in INTEGER_COLUMNS + BIGINT_COLUMNS + NUMERIC_COLUMNS + ["orderDate", "time"]]
@@ -221,11 +232,9 @@ def transform_data(df: pd.DataFrame) -> pd.DataFrame:
     for col in string_cols:
         df[col] = df[col].astype(str).replace("nan", None)
 
-    # Keep only required columns and add missing ones
     existing_cols = [col for col in POSTGRES_COLUMNS if col in df.columns]
     df = df[existing_cols]
     
-    # Add missing columns
     for col in POSTGRES_COLUMNS:
         if col not in df.columns:
             df[col] = None
@@ -233,7 +242,6 @@ def transform_data(df: pd.DataFrame) -> pd.DataFrame:
     df = df[POSTGRES_COLUMNS]
     print("Data transformation completed.")
     
-    # Final summary
     print(f"\nFINAL DATA SUMMARY:")
     print(f"Total rows: {len(df)}")
     print(f"orderDate not null: {df['orderDate'].notna().sum()}")
@@ -245,24 +253,15 @@ def load_to_postgres_bulk(df: pd.DataFrame):
     """Optimized bulk insert using execute_values"""
     try:
         print("Connecting to database...")
-        conn = psycopg2.connect(
-            host="server_ip",
-            port="port",
-            database="db_name",
-            user="user_name",
-            password="pwd"
-        )
+        conn = psycopg2.connect(**DB_CONFIG)
         cur = conn.cursor()
         
         print("Preparing bulk insert...")
         
-        # Create column names string
         cols = ",".join([f'"{c}"' for c in POSTGRES_COLUMNS])
         
-        # Convert DataFrame to list of tuples (most efficient for execute_values)
         data_tuples = [tuple(row) for row in df.values]
         
-        # Use execute_values for bulk insert (fastest method)
         insert_sql = f'INSERT INTO billing_data ({cols}) VALUES %s'
         
         print(f"Inserting {len(data_tuples)} rows in bulk...")
@@ -300,12 +299,10 @@ def main():
         transform_time = time.time()
         print(f"Transform completed in {transform_time - download_time:.2f} seconds")
         
-        # Bulk insert into billing_data
         load_to_postgres_bulk(df)
         billing_insert_time = time.time()
         print(f"Billing data load completed in {billing_insert_time - transform_time:.2f} seconds")
         
-        # Insert aggregates into brand, store, category, product tables
         agg_insert.load_aggregates_to_postgres(df)
         aggregates_insert_time = time.time()
         print(f"Aggregate inserts completed in {aggregates_insert_time - billing_insert_time:.2f} seconds")
