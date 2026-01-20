@@ -47,7 +47,7 @@ BIGINT_COLUMNS = ["barcode"]
 NUMERIC_COLUMNS = ["GST", "CGSTRate", "SGSTRate", "acessAmount", "cess"]
 
 class CSVDownloader:
-    def __init__(self, base_url="https://api.thenewshop.in", username="nssomin", password="nssomin"):
+    def __init__(self, base_url="https://api.example.in", username="user", password="pw"):
         self.base_url = base_url
         self.username = username
         self.password = password
