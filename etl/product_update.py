@@ -1,10 +1,22 @@
 import psycopg2
+import os
+from dotenv import load_dotenv
 
-# Database connection details
-DB_HOST = "server_ip"
-DB_NAME = "db_name"
-DB_USER = "user_name"
-DB_PASSWORD = "password"
+load_dotenv()
+
+def require_env(name: str) -> str:
+    value = os.getenv(name)
+    if not value:
+        raise RuntimeError(f"Missing required environment variable: {name}")
+    return value
+
+
+DB_HOST = require_env("DB_HOST")
+DB_NAME = require_env("DB_NAME")
+DB_USER = require_env("DB_USER")
+DB_PASSWORD = require_env("DB_PASSWORD")
+DB_PORT = int(os.getenv("DB_PORT", 5432))
+
 
 queries = [
     # === Product updates ===
@@ -55,11 +67,13 @@ def run_updates():
     conn = None
     try:
         conn = psycopg2.connect(
-            host=DB_HOST,
-            dbname=DB_NAME,
-            user=DB_USER,
-            password=DB_PASSWORD
+        host=DB_HOST,
+        port=DB_PORT,
+        dbname=DB_NAME,
+        user=DB_USER,
+        password=DB_PASSWORD
         )
+
         cur = conn.cursor()
         for q in queries:
             cur.execute(q)

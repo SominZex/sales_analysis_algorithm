@@ -288,7 +288,7 @@ def load_to_postgres_bulk(df: pd.DataFrame):
 def main():
     start_time = time.time()
     
-    downloader = CSVDownloader(username="nssomin", password="nssomin")
+    downloader = CSVDownloader(username="user", password="pw")
     df = downloader.download_yesterday_csv(order_type="online")
     
     if df is not None and not df.empty:
