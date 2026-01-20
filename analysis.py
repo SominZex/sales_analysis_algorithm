@@ -83,7 +83,7 @@ PG_CONFIG = {
     'user': 'user_name',
     'password': 'pw',
     'host': 'server_ip',
-    'port': port
+    'port': "port"
 }
 
 
