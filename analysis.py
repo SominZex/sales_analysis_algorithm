@@ -73,18 +73,12 @@ HEADER_STYLE = {
 EMAIL_CONFIG = {
     'smtp_server': 'smtp.gmail.com',
     'smtp_port': 587,
-    'sender_email': 'satpal@newshop.in',
-    'sender_password': 'outd pxir nvgc mwrp',
-    'to': 'data@newshop.in',
-    'cc_recipients': ['it@newshop.in', 'kamfranchise@newshop.in', 'mani@newshop.in',
-                      'bharti@newshop.in', 'fnb@newshop.in', 
-                      'kartikay.singh@newshop.in', 'vivek@newshop.in',
-                      'saurabh.parihar@newshop.in', 'paras.arora@newshop.in', 
-                      'sachin.rana@newshop.in', 'ravi.mishra@newshop.in', 
-                      'yogesh.mehta@newshop.in', 'charak@newshop.in', 
-                      'aastha@newshop.in', 'navdeep.sharma@newshop.in'],
-    'tracking_host': 'http://74.225.249.155:8000',
-    'summary_recipient': 'mani@newshop.in'
+    'sender_email': 'email_id',
+    'sender_password': 'app_pw',
+    'to': 'to_mail',
+    'cc_recipients': ['cc', 'mails'],
+    'tracking_host': 'tracking_mail',
+    'summary_recipient': 'mail'
 }
 
 
