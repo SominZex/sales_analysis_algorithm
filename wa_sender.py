@@ -443,11 +443,11 @@ class WhatsAppSender:
         
         time.sleep(5)  # Wait for message to appear and get checkmark
         
-        # STEP 2: Wait for checkmark (proof of send)
+        # STEP 2: Wait for checkmark (proof of send) - INCREASED TO 60 SECONDS
         print("  Waiting for delivery confirmation...")
         checkmark_found = False
         
-        for wait in range(30):  # Wait up to 30 seconds for checkmark
+        for wait in range(60):  # CHANGED FROM 30 TO 60 SECONDS
             try:
                 # Look for ANY checkmark in the last outgoing message
                 last_messages = page.locator('div.message-out').all()
@@ -498,7 +498,7 @@ class WhatsAppSender:
             except:
                 pass
             
-            return False, "No checkmark received after 30s - send likely failed"
+            return False, "No checkmark received after 60s - send likely failed"  # CHANGED FROM 30s
         
         print("  ✓ Send verified with checkmark")
         page.screenshot(path="send_success.png")
