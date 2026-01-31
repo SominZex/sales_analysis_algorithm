@@ -10,6 +10,7 @@ This document describes **how to operate, monitor, and troubleshoot** the Sales 
 - ETL pipeline runs early morning
 - Daily sales report generated
 - PDF shared via Email and WhatsApp
+![daily](https://github.com/user-attachments/assets/565ab63f-c6b8-4570-a68b-9e7308222119)
 
 ### Weekly (Monday)
 - Weekly aggregation executed
