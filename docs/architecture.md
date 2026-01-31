@@ -1,4 +1,6 @@
 # System Architecture
+![architechture](https://github.com/user-attachments/assets/af0879f1-918d-441a-be7a-012135240e8c)
+
 
 ## Overview
 
