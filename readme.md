@@ -10,22 +10,22 @@ This project intentionally does not include any interactive dashboard or UI.
 All insights are delivered automatically through scheduled reports.
 
 ## Key Capabilities 
-#### Automated ETL pipeline for near real-time sales data
-#### Scheduled report generation (Daily / Weekly / Monthly)
-#### Business KPI computation and comparison logic
-#### PDF report generation
-#### Automated distribution via Email and WhatsApp
-#### Cron-based orchestration on Azure VM
-#### Logging for traceability and debugging
+#### -- Automated ETL pipeline for near real-time sales data
+#### -- Scheduled report generation (Daily / Weekly / Monthly)
+#### -- Business KPI computation and comparison logic
+#### -- PDF report generation
+#### -- Automated distribution via Email and WhatsApp
+#### -- Cron-based orchestration on Azure VM
+#### -- Logging for traceability and debugging
 
 ## ETL Pipeline
 ### Data Ingestion
-#### Sales data is fetched via API calls from the mainframe database
-#### Data is loaded into a sandbox / analytics database
+#### -- Sales data is fetched via API calls from the mainframe database
+#### -- Data is loaded into a sandbox / analytics database
 
 ### Data Update
-#### Required tables are updated daily
-#### Product master data updates are handled independently
+#### -- Required tables are updated daily
+#### -- Product master data updates are handled independently
 
 ## Daily Sales Report Automation
 The daily report provides a short-term performance snapshot and is automatically generated and distributed every day.
@@ -37,61 +37,61 @@ The daily report provides a short-term performance snapshot and is automatically
 #### Product-wise sales
 
 ### Analysis Logic
-#### Compares the latest available sales data against the average of the previous 7 day
-#### Calculates: Total Sales, Avg weekly growth percentage
-#### Applies Conditional Formating to highlight positive and negative growth
+#### -- Compares the latest available sales data against the average of the previous 7 day
+#### -- Calculates: Total Sales, Avg weekly growth percentage
+#### -- Applies Conditional Formating to highlight positive and negative growth
 
 ### Delivery
-#### PDF Report generated automatically
-#### Report sent Via Email and WhatsApp
+#### -- PDF Report generated automatically
+#### -- Report sent Via Email and WhatsApp
 
 ## Weekly Sales Report Automation
-#### Executed every Monday
-#### Aggregates sales performance for the previous week
-#### Designed for business partners and management
-#### Distributed automatically via Email
+#### -- Executed every Monday
+#### -- Aggregates sales performance for the previous week
+#### -- Designed for business partners and management
+#### -- Distributed automatically via Email
 
 ## Monthly Sales Report Automation
-#### Executed on the 1st day of every month
-#### Provides a consolidated view of monthly performance
-#### Distributed automatically via Email
-#### No manual execution required
+#### -- Executed on the 1st day of every month
+#### -- Provides a consolidated view of monthly performance
+#### -- Distributed automatically via Email
+#### -- No manual execution required
 
 
 ## Installation & Setup
 ##### Clone the Repository:
 
-#### git clone https://github.com/SominZex/sales_analysis_algorithm.git
+#### 'git clone https://github.com/SominZex/sales_analysis_algorithm.git'
 
-#### cd sales_analysis_algorithm
+#### 'cd sales_analysis_algorithm'
 
 ## Create environment
-#### python3 -m venv env_name
+#### 'python3 -m venv env_name'
 
 ## Activate env
-#### source env_name/bin/activate (for MAC and Linux)
-#### env_name\Scripts\activate.bat (for windows)
+#### 'source env_name/bin/activate' (for MAC and Linux)
+#### 'env_name\Scripts\activate.bat' (for windows)
 
 ## Install Dependencies:
-#### pip install -r requirements.txt
+#### 'pip install -r requirements.txt'
 
 
 ## Run the Application:
 
 ### Manual Execution
-#### python ./etl/etl_pip.py
+#### 'python ./etl/etl_pip.py'
 
 ### Product Table update:
-#### python ./etl/product_update.py
+#### 'python ./etl/product_update.py'
 
 ### To run daily analysis Manually
-#### python analysis.py
+#### 'python analysis.py'
 
 ### To run Weekly anlaysis Manually
-#### python weekly_reports.py
+#### 'python weekly_reports.py'
 
 ### To run monthly analysis Manually
-#### python monthly_reports.py
+#### 'python monthly_reports.py'
 
 ## Cron Configuration
 ### Navigate to terminal and type "crontab -e" (linux only) then paste the folllwing cron jobs (make sure you have the necessary shell script created in the directory, .sh files are not included here):
@@ -106,20 +106,20 @@ The daily report provides a short-term performance snapshot and is automatically
 
 ## Logging & Monitoring
 ### All executions generate logs for:
-#### ETL jobs
-#### Report generation
-#### Notification delivery
+#### -- ETL jobs
+#### -- Report generation
+#### -- Notification delivery
 
 ### Logs are used for:
-#### Failure diagnosis
-#### Audit trails
-#### Operational monitoring
+#### -- Failure diagnosis
+#### -- Audit trails
+#### -- Operational monitoring
 
 ## CI/Automation
 ### GitHub Actions are configured for:
-#### Code validation
-#### Basic test execution
-### Runtime automation is handled exclusively by cron on Azure VM
+#### -- Code validation
+#### -- Basic test execution
+### -- Runtime automation is handled exclusively by cron on Azure VM
 
 ## Final Note
 #### This system is not a dashboard.
