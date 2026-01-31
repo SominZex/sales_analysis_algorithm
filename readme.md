@@ -4,7 +4,7 @@
 
 
 ## Overview
-This project is a fully automated sales reporting system designed to generate daily, weekly, and monthly business performance reports in PDF format and automatically distribute them to stakeholders via Email and WhatsApp.
+This project is a fully automated sales reporting engine designed to generate daily, weekly, and monthly business performance reports in PDF format and automatically distribute them to stakeholders via Email and WhatsApp.
 The system is designed to run without manual intervention once deployed and scheduled via cron jobs on an Azure Virtual Machine.
 This project intentionally does not include any interactive dashboard or UI.
 All insights are delivered automatically through scheduled reports.
