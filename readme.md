@@ -91,7 +91,9 @@ The daily report provides a short-term performance snapshot and is automatically
 #### 'python weekly_reports.py'
 
 ### To run monthly analysis Manually
-#### 'python monthly_reports.py'
+```bash
+python monthly_reports.py
+```
 
 ## Cron Configuration
 ### Navigate to terminal and type "crontab -e" (linux only) then paste the folllwing cron jobs (make sure you have the necessary shell script created in the directory, .sh files are not included here):
