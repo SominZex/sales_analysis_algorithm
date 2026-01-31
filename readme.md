@@ -61,34 +61,51 @@ The daily report provides a short-term performance snapshot and is automatically
 ## Installation & Setup
 ##### Clone the Repository:
 
-#### 'git clone https://github.com/SominZex/sales_analysis_algorithm.git'
+```bash
+git clone https://github.com/SominZex/sales_analysis_algorithm.git
+```
 
-#### 'cd sales_analysis_algorithm'
+```bash
+cd sales_analysis_algorithm
+```
 
 ## Create environment
-#### 'python3 -m venv env_name'
+```bash
+python3 -m venv env_name
+```
 
 ## Activate env
-#### 'source env_name/bin/activate' (for MAC and Linux)
-#### 'env_name\Scripts\activate.bat' (for windows)
+```bash
+env_name\Scripts\activate.bat
+```
 
 ## Install Dependencies:
-#### 'pip install -r requirements.txt'
+```bash
+pip install -r requirements.txt
+```
 
 
 ## Run the Application:
 
 ### Manual Execution
-#### 'python ./etl/etl_pip.py'
+```bash
+python ./etl/etl_pip.py
+```
 
 ### Product Table update:
-#### 'python ./etl/product_update.py'
+```bash
+python ./etl/product_update.py
+```
 
 ### To run daily analysis Manually
-#### 'python analysis.py'
+```bash
+python analysis.py
+```
 
 ### To run Weekly anlaysis Manually
-#### 'python weekly_reports.py'
+```bash
+python weekly_reports.py
+```
 
 ### To run monthly analysis Manually
 ```bash
