@@ -76,7 +76,7 @@ python3 -m venv env_name
 
 ## Activate env
 ```bash
-env_name\Scripts\activate.bat
+env_name/bin/activate
 ```
 
 ## Install Dependencies:
