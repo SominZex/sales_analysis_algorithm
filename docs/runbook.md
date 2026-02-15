@@ -28,7 +28,7 @@ No manual action is required during normal operation.
 
 | Path | Purpose |
 |----|--------|
-| `etl/` | Data extraction and transformation |
+| `airflow/dags/` | Orchestration and Data transformation |
 | `logs/` | Execution and error logs |
 | `monthly_query/` | Date logic for monthly reports |
 | `.github/` | CI configuration |
@@ -41,6 +41,7 @@ No manual action is required during normal operation.
 Logs are the **primary monitoring mechanism**.
 
 ### What to Check
+- Airflow UI for Orchestration log
 - ETL logs for data ingestion failures
 - Report generation logs for PDF issues
 - Notification logs for delivery failures

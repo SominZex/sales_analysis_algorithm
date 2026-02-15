@@ -6,7 +6,7 @@
 
 The Sales Analysis Automation System is a **batch-oriented, report-driven analytics pipeline** designed to operate without manual intervention. It follows a classical ETL + reporting architecture and is optimized for **reliability, automation, and scheduled delivery** rather than interactive exploration.
 
-The system runs on a Linux-based **Azure Virtual Machine** and is orchestrated using **cron jobs**.
+The system runs on a Linux-based **Azure Virtual Machine** and is orchestrated using **Airflow** & **cron jobs**.
 
 ---
 
@@ -36,7 +36,7 @@ The system runs on a Linux-based **Azure Virtual Machine** and is orchestrated u
      - WhatsApp (automation or API-based)
 
 6. **Orchestration & Scheduling**
-   - Cron jobs control execution frequency
+   - Apache Airflow and Cron jobs control execution frequency
    - No manual triggering required after setup
 
 ---
