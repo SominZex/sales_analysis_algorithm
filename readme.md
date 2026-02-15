@@ -153,9 +153,10 @@ Airflow runs in Docker for:
 ## Airflow Setup:
 ### Directory Structure
 ```bash
-/airflow/
-    ├── dags/
-    ├── docker-compose.yml
+/sales_analysis_algorithm/
+    /airflow/
+        ├── dags/
+        ├── docker-compose.yml
 ```
 
 #### Start
@@ -173,12 +174,12 @@ http://localhost:8080
 ## Cron Configuration
 ### Navigate to terminal and type "crontab -e" (linux only) then paste the folllwing cron jobs (make sure you have the necessary shell script created in the directory, .sh files are not included here):
 ``` bash
-45 3 * * * /home/azureuser/azure_analysis_algorithm/run_analysis.sh
-50 4 * * * /home/azureuser/azure_analysis_algorithm/wa_sender.sh >> /home/azureuser/logs/wa_sender_cron.log 2>&1
-05 5 * * 1 /home/azureuser/azure_analysis_algorithm/run_weekly_reports.sh
-15 6 * * 1 /home/azureuser/azure_analysis_algorithm/weekly_mail.sh
-10 7 1 * * /home/azureuser/azure_analysis_algorithm/monthly_reports.sh
-02 8 1 * * /home/azureuser/azure_analysis_algorithm/monthly_mail.sh
+45 1 * * * /home/azureuser/sales_analysis_algorithm/run_analysis.sh
+50 1 * * * /home/azureuser/sales_analysis_algorithm/wa_sender.sh
+05 2 * * 1 /home/azureuser/sales_analysis_algorithm/run_weekly_reports.sh
+15 3 * * 1 /home/azureuser/sales_analysis_algorithm/weekly_mail.sh
+10 4 1 * * /home/azureuser/sales_analysis_algorithm/monthly_reports.sh
+02 5 1 * * /home/azureuser/sales_analysis_algorithm/monthly_mail.sh
 ```
 
 ## Observability & Reliability
