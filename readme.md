@@ -18,10 +18,14 @@ All insights are delivered automatically through scheduled reports.
 - Cron-based orchestration on Azure VM
 - Logging for traceability and debugging
 
-## ETL Pipeline
-### Data Ingestion
+## Orchestration Architecture
+### Airflow - ETL Layer
 - Sales data is fetched via API calls from the mainframe database
 - Data is loaded into a sandbox / analytics database
+- Orchestrates data extraction and transformation tasks
+- Manages dependencies between ETL jobs
+- Provides retry, monitoring, logging, and scheduling
+- Ensures deterministic execution of structured data workflows
 
 ### Data Update
 - Required tables are updated daily
@@ -115,8 +119,6 @@ python monthly_reports.py
 ## Cron Configuration
 ### Navigate to terminal and type "crontab -e" (linux only) then paste the folllwing cron jobs (make sure you have the necessary shell script created in the directory, .sh files are not included here):
 ``` bash
- 30 3 * * * /home/azureuser/etl/vmac/bin/python /home/azureuser/etl/etl_pip.py >> /home/azureuser/etl/etl_pip.log 2>&1
-38 3 * * * /home/azureuser/etl/vmac/bin/python /home/azureuser/etl/product_update.py >> /home/azureuser/etl/product_update.log 2>&1
 45 3 * * * /home/azureuser/azure_analysis_algorithm/run_analysis.sh
 50 4 * * * /home/azureuser/azure_analysis_algorithm/wa_sender.sh >> /home/azureuser/logs/wa_sender_cron.log 2>&1
 05 5 * * 1 /home/azureuser/azure_analysis_algorithm/run_weekly_reports.sh
@@ -124,6 +126,14 @@ python monthly_reports.py
 10 7 1 * * /home/azureuser/azure_analysis_algorithm/monthly_reports.sh
 02 8 1 * * /home/azureuser/azure_analysis_algorithm/monthly_mail.sh
 ```
+### N.B.: The analytics generation and notification layer (PDF rendering, WhatsApp automation, email distribution) remains on cron scheduling due to system-level dependencies:
+- Playwright + Chromium browser automation
+- Xvfb virtual display requirements
+- pdfkit / wkhtmltopdf OS-level bindings
+- Stateful duplicate-prevention logic (date tracking)
+- File-system–dependent workflows
+
+These workloads involve browser sessions and GUI-level automation, which are better handled in controlled shell execution environments rather than containerized orchestration.
 
 ## Logging & Monitoring
 ### All executions generate logs for:
