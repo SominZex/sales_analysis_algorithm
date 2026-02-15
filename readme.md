@@ -87,19 +87,16 @@ These workloads involve browser sessions and GUI-level automation, which are bet
 
 ## Execution Flow
 
-Airflow Scheduler
-        ↓
-Extract → Transform → Aggregate
-        ↓
-Materialized KPI Tables
-        ↓
---------------------------------
-        ↓
-Cron Scheduler
-        ↓
-Generate Reports
-        ↓
-Email + WhatsApp Distribution
+```mermaid
+flowchart TD
+    A[Airflow Scheduler] --> B[Extract]
+    B --> C[Transform]
+    C --> D[Aggregate]
+    D --> E[Materialized KPI Tables]
+    E --> F[Cron Scheduler]
+    F --> G[Generate Reports]
+    G --> H[Email & WhatsApp Distribution]
+```
 
 ## Reporting Logic
 #### Daily Report
