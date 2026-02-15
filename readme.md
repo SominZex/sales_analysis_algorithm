@@ -4,22 +4,45 @@
 
 
 ## Overview
-This project is a fully automated sales reporting engine designed to generate daily, weekly, and monthly business performance reports in PDF format and automatically distribute them to stakeholders via Email and WhatsApp.
-The system is designed to run without manual intervention once deployed and scheduled via cron jobs on an Azure Virtual Machine.
-This project intentionally does not include any interactive dashboard or UI.
-All insights are delivered automatically through scheduled reports.
+### This project is a fully automated sales reporting engine designed to:
+- Generate Daily, Weekly, and Monthly business performance reports
+- Process structured ETL workflows
+- Automatically distribute reports via Email and WhatsApp
+- Operate without manual intervention after deployment
+### The system follows a hybrid orchestration architecture:
+- Apache Airflow → ETL layer
+- Cron → Reporting & Notification layer
+#### This project intentionally does not include an interactive dashboard or UI.
+#### All insights are delivered automatically via scheduled reports.
 
 ## Key Capabilities 
-- Automated ETL pipeline for near real-time sales data
-- Scheduled report generation (Daily / Weekly / Monthly)
-- Business KPI computation and comparison logic
-- PDF report generation
-- Automated distribution via Email and WhatsApp
-- Cron-based orchestration on Azure VM
-- Logging for traceability and debugging
+- Automated ETL pipeline
+- Hybrid orchestration architecture
+- Deterministic DAG execution
+- Growth comparison logic
+- Automated PDF generation
+- WhatsApp automation
+- Email automation
+- Structured logging
+- Zero manual operational dependency
 
-## Orchestration Architecture
-### Airflow - ETL Layer
+## System Architecture
+#### The system follows a layered orchestration strategy:
+
+| Layer          | Technology                  | Responsibility                                     |
+| -------------- | --------------------------- | -------------------------------------------------- |
+| Data Layer     | Apache Airflow (Dockerized) | Extraction, transformation, aggregation            |
+| Delivery Layer | Cron (Azure VM)             | Report rendering, browser automation, distribution |
+
+#### This separation enforces:
+- Deterministic data workflows
+- Runtime isolation
+- Fault containment
+- Operational stability
+
+### Data Engineering Layer (Apache Airflow)
+#### The ETL layer is orchestrated using Apache Airflow, deployed via Docker.
+### Responsibility
 - Sales data is fetched via API calls from the mainframe database
 - Data is loaded into a sandbox / analytics database
 - Orchestrates data extraction and transformation tasks
@@ -27,39 +50,73 @@ All insights are delivered automatically through scheduled reports.
 - Provides retry, monitoring, logging, and scheduling
 - Ensures deterministic execution of structured data workflows
 
-### Data Update
-- Required tables are updated daily
-- Product master data updates are handled independently
+## Design Characteristics
+- DAG-driven deterministic execution
+- Time-window controlled processing
+- Safe re-runs (idempotent writes)
+- Dependency-aware scheduling
+- Controlled retry policy
+- Containerized execution environment
 
-## Daily Sales Report Automation
-The daily report provides a short-term performance snapshot and is automatically generated and distributed every day.
+### Reporting & Distribution Layer (Cron-Based)
+####  The reporting layer runs directly on the Azure VM using cron scheduling.
 
-### Included Metrics
+### Responsibilities
+- PDF report generation
+- Excel report creation
+- WhatsApp automation
+- Email distribution
+- Duplicate prevention logic
+- File-system bound execution
+
+### Why Reporting Is Not in Airflow
+#### These workloads depend on:
+- Playwright + Chromium browser automation (No Whatsapp API used)
+- Xvfb virtual display
+- wkhtmltopdf system bindings
+- Stateful execution logic
+- OS-level binary dependencies
+
+#### Running browser automation inside containerized Airflow workers introduced:
+- Browser instability
+- Resource contention
+- Increased orchestration complexity
+
+#### Therefore, delivery workloads are intentionally isolated at the OS level.
+These workloads involve browser sessions and GUI-level automation, which are better handled in controlled shell execution environments rather than containerized orchestration.
+
+## Execution Flow
+
+Airflow Scheduler
+        ↓
+Extract → Transform → Aggregate
+        ↓
+Materialized KPI Tables
+        ↓
+--------------------------------
+        ↓
+Cron Scheduler
+        ↓
+Generate Reports
+        ↓
+Email + WhatsApp Distribution
+
+## Reporting Logic
+#### Daily Report
 - Store-wise sales
 - Category-wise sales
 - Brand-wise sales
 - Product-wise sales
+- Comparison against rolling 7-day average
+- Growth percentage computation
+- Conditional formatting for performance signals
+#### Weekly Report
+- Aggregates prior week performance
+- Designed for operational and management stakeholders
 
-### Analysis Logic
-- Compares the latest available sales data against the average of the previous 7 day
-- Calculates: Total Sales, Avg weekly growth percentage
-- Applies Conditional Formating to highlight positive and negative growth
-
-### Delivery
-- PDF Report generated automatically
-- Report sent Via Email and WhatsApp
-
-## Weekly Sales Report Automation
-- Executed every Monday
-- Aggregates sales performance for the previous week
-- Designed for business partners and management
-- Distributed automatically via Email
-
-## Monthly Sales Report Automation
-- Executed on the 1st day of every month
-- Provides a consolidated view of monthly performance
-- Distributed automatically via Email
-- No manual execution required
+## Monthly Report
+- Consolidated monthly business performance
+- Strategic performance summary
 
 
 ## Installation & Setup
@@ -88,33 +145,33 @@ env_name/bin/activate
 pip install -r requirements.txt
 ```
 
+### Infrastructure & Deployment
+#### Containerized ETL (Docker + Airflow)
+Airflow runs in Docker for:
+- Environment reproducibility
+- Dependency isolation
+- Controlled orchestration
+- Clean separation from OS-level automation
 
-## Run the Application:
-
-### Manual Execution
+## Airflow Setup:
+### Directory Structure
 ```bash
-python ./etl/etl_pip.py
+/airflow/
+    ├── dags/
+    ├── docker-compose.yml
 ```
 
-### Product Table update:
+#### Start
 ```bash
-python ./etl/product_update.py
+cd airflow
+docker compose up airflow-init
+docker compose up -d
+```
+### Access UI
+```bash
+http://localhost:8080
 ```
 
-### To run daily analysis Manually
-```bash
-python analysis.py
-```
-
-### To run Weekly anlaysis Manually
-```bash
-python weekly_reports.py
-```
-
-### To run monthly analysis Manually
-```bash
-python monthly_reports.py
-```
 
 ## Cron Configuration
 ### Navigate to terminal and type "crontab -e" (linux only) then paste the folllwing cron jobs (make sure you have the necessary shell script created in the directory, .sh files are not included here):
@@ -126,25 +183,31 @@ python monthly_reports.py
 10 7 1 * * /home/azureuser/azure_analysis_algorithm/monthly_reports.sh
 02 8 1 * * /home/azureuser/azure_analysis_algorithm/monthly_mail.sh
 ```
-### N.B.: The analytics generation and notification layer (PDF rendering, WhatsApp automation, email distribution) remains on cron scheduling due to system-level dependencies:
-- Playwright + Chromium browser automation
-- Xvfb virtual display requirements
-- pdfkit / wkhtmltopdf OS-level bindings
-- Stateful duplicate-prevention logic (date tracking)
-- File-system–dependent workflows
 
-These workloads involve browser sessions and GUI-level automation, which are better handled in controlled shell execution environments rather than containerized orchestration.
-
-## Logging & Monitoring
-### All executions generate logs for:
-- ETL jobs
+## Observability & Reliability
+#### Logging
+#### Logs are generated for:
+- ETL execution (Airflow logs)
 - Report generation
-- Notification delivery
+- Email delivery
+- WhatsApp automation
 
-### Logs are used for:
+#### Logs support:
 - Failure diagnosis
-- Audit trails
-- Operational monitoring
+- Operational auditing
+- Execution traceability
+
+#### Determinism
+- Idempotent data writes
+- Controlled execution windows
+- Duplicate prevention safeguards
+- Explicit scheduling boundaries
+
+#### Fault Containment
+- ETL failures isolated from reporting layer
+- Reporting failures do not corrupt data layer
+- Layered orchestration prevents cascading impact
+
 
 ## CI/Automation
 ### GitHub Actions are configured for:
@@ -152,6 +215,24 @@ These workloads involve browser sessions and GUI-level automation, which are bet
 - Basic test execution
 - Runtime automation is handled exclusively by cron on Azure VM
 
+### Runtime scheduling is controlled by:
+- Airflow (Data Layer)
+- Cron (Delivery Layer)
+
+## Design Principles
+- Separation of concerns
+- Deterministic data workflows
+- Hybrid orchestration where appropriate
+- Infrastructure-aware engineering decisions
+- Production stability over tool overuse
+- Minimal human operational dependency
+
 ## Final Note
-- This system is not a dashboard.
-- It is a production-oriented, report-driven automation engine built to deliver business insights reliably, automatically, and on schedule.
+#### This system is not a dashboard.
+#### It is a production-grade, hybrid-orchestrated Sales Intelligence Automation Engine engineered for: 
+- Reliability
+- Determinism
+- Operational scalability
+- Controlled execution boundaries
+- Continuous automated insight delivery
+
