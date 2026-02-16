@@ -902,7 +902,6 @@ async def generate_and_send_report():
         print("Shutting down server...")
         time.sleep(2)
         os._exit(0)
-
-
+        
 if __name__ == '__main__':
     asyncio.run(generate_and_send_report())
