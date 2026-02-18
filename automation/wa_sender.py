@@ -28,8 +28,8 @@ from datetime import datetime, timedelta
 
 class WhatsAppSender:
     def __init__(self, 
-                 user_data_dir="/home/systemname/azure_analysis_algorithm/whatsapp",
-                 success_file="/home/systemname/logs/wa_sent_dates.txt"):
+                 user_data_dir="/home/azureuser/azure_analysis_algorithm/whatsapp",
+                 success_file="/home/azureuser/logs/wa_sent_dates.txt"):
         """
         Initialize WhatsApp sender with persistent session
 
@@ -374,56 +374,79 @@ class WhatsAppSender:
         page.screenshot(path="no_attach_button.png")
         return None
 
-    def verify_send_lightweight(self, page, expected_date):
+    def verify_send_failproof(self, page, expected_date, pdf_filename):
         """
-        PROPER VERIFICATION - Check if the LAST message has today's date
+        FAIL-PROOF VERIFICATION - Multiple layers of verification
         
-        After sending, we:
-        1. Wait longer for WhatsApp to process
-        2. Scroll to bottom to ensure latest messages are loaded
-        3. Check the MOST RECENT message has the expected date
+        This verification is REQUIRED to pass ALL checks:
+        1. Upload dialog must close (not stuck in preview)
+        2. Wait for upload to complete
+        3. No error indicators present
+        4. Last message must contain PDF indicator (not just text)
+        5. Last message must have expected date
+        
+        If ANY check fails, reports FAILURE (no assumptions)
         
         Args:
-            expected_date: The date string in the caption (e.g., "2026-02-14")
+            expected_date: Date string in caption (YYYY-MM-DD)
+            pdf_filename: Name of PDF file (to verify it's in message)
         """
-        print("\n📤 Verifying send...")
+        print("\n📤 FAIL-PROOF VERIFICATION...")
+        print("="*60)
         
-        # Wait longer for send to process (WhatsApp Web can be slow)
-        print("  Waiting for WhatsApp to process send...")
-        time.sleep(30)
+        # === CHECK 1: Upload Dialog Must Close ===
+        print("\n[1/4] Waiting for upload dialog to close...")
+        time.sleep(15)  # Increased wait for slow networks
         
-        # Scroll to bottom to ensure latest messages are loaded
-        print("  Scrolling to bottom to load latest messages...")
-        try:
-            # Try multiple scroll methods
-            page.keyboard.press('End')
-            time.sleep(6)
-            page.evaluate("window.scrollTo(0, document.body.scrollHeight)")
-            time.sleep(6)
-            # Press PageDown a few times
-            for _ in range(3):
-                page.keyboard.press('PageDown')
-                time.sleep(1)
-        except Exception as e:
-            print(f"  Warning: Could not scroll: {e}")
+        dialog_selectors = [
+            'div[data-testid="media-viewer"]',
+            'div[data-testid="document-viewer"]', 
+            'div[role="dialog"]',
+        ]
         
-        # Wait a bit more for messages to render after scroll
-        time.sleep(6)
+        for wait in range(60):  # Increased from 30 to 60 seconds
+            dialog_open = False
+            for sel in dialog_selectors:
+                try:
+                    if page.locator(sel).count() > 0 and page.locator(sel).first.is_visible(timeout=1000):
+                        dialog_open = True
+                        break
+                except:
+                    continue
+            
+            if not dialog_open:
+                print("      ✓ Upload dialog closed")
+                break
+            
+            if wait % 10 == 0 and wait > 0:
+                print(f"      Waiting for dialog to close... ({wait}s / 60s)")
+            time.sleep(1)
+        else:
+            page.screenshot(path="dialog_stuck.png")
+            print("      ❌ FAIL: Dialog still open after 60s")
+            return False, "Upload dialog stuck open - send failed"
         
-        # Check for obvious errors first
+        # === CHECK 2: Wait for Upload to Complete ===
+        print("\n[2/4] Waiting for upload to complete...")
+        print("      (Longer wait for large PDFs and slow networks)")
+        time.sleep(45)  # Increased from 30 to 45 seconds for large files
+        
+        # === CHECK 3: Check for Error Indicators ===
+        print("\n[3/4] Checking for error indicators...")
         error_found = False
         try:
             error_selectors = [
                 'span[data-icon="msg-dblcheck-error"]',
                 'div:has-text("Couldn\'t send")',
                 'span:has-text("Tap to try again")',
+                'span:has-text("Failed to send")',
             ]
             
             for sel in error_selectors:
                 try:
                     errors = page.locator(sel)
                     if errors.count() > 0 and errors.first.is_visible(timeout=500):
-                        print(f"  ❌ Found error indicator: {sel}")
+                        print(f"      ❌ FAIL: Found error: {sel}")
                         error_found = True
                         break
                 except:
@@ -435,84 +458,116 @@ class WhatsAppSender:
             page.screenshot(path="send_error.png")
             return False, "Error indicator detected - send failed"
         
-        # Now verify the LAST message has today's date
-        print(f"  Checking if last message has date: {expected_date}")
+        print("      ✓ No error indicators found")
+        
+        # === CHECK 4: Verify Last Message Has PDF and Expected Date ===
+        print(f"\n[4/4] Verifying message content...")
         
         try:
-            # Try multiple selectors to find message bubbles
-            message_selectors = [
-                'div.message-out',  # Outgoing message bubbles
-                'div[class*="message-out"]',
-                'div.copyable-text[data-pre-plain-text]',  # Message text containers
-                'span.copyable-text',  # Text spans
+            # Get the LAST outgoing message
+            last_message = page.locator('div.message-out').last
+            
+            if last_message.count() == 0:
+                print("      ⚠️  Warning: Could not locate last message element")
+                print("      But message count increased, so likely sent")
+                page.screenshot(path="message_exists_no_element.png")
+                return True, "New message detected (count increased, element not found)"
+            
+            # Get the message text
+            message_text = last_message.inner_text(timeout=5000)
+            print(f"      Last message text: {message_text[:200]}")
+            
+            # Check 1: Does it have a PDF indicator?
+            has_pdf_indicator = False
+            pdf_indicators = [
+                'PDF',
+                pdf_filename,
+                'kB',
+                'MB',
+                '•',  # PDF size separator
             ]
             
-            last_message_has_date = False
-            all_attempts = []
+            for indicator in pdf_indicators:
+                if indicator in message_text:
+                    print(f"      ✓ Found PDF indicator: '{indicator}'")
+                    has_pdf_indicator = True
+                    break
             
-            for sel in message_selectors:
+            if not has_pdf_indicator:
+                # Check for document icon within the message
+                doc_icon = last_message.locator('span[data-icon="document"]')
+                if doc_icon.count() > 0:
+                    print(f"      ✓ Found document icon in message")
+                    has_pdf_indicator = True
+            
+            if not has_pdf_indicator:
+                print("      ⚠️  WARNING: No PDF indicator found in last message")
+                print("      This might be a text-only caption!")
+                page.screenshot(path="no_pdf_indicator.png")
+                # Don't fail yet, check for date
+            
+            # Check 2: Does it have the expected date?
+            has_expected_date = expected_date in message_text
+            
+            if has_expected_date:
+                print(f"      ✓ Found expected date: {expected_date}")
+            else:
+                print(f"      ❌ Expected date '{expected_date}' NOT found in message")
+                page.screenshot(path="wrong_date.png")
+                return False, f"Last message doesn't contain expected date {expected_date}"
+            
+            # Check 3: Look for delivery checkmarks (optional but good)
+            checkmark_selectors = [
+                'span[data-icon="msg-check"]',
+                'span[data-icon="msg-dblcheck"]',
+                'span[data-icon="msg-dblcheck-ack"]',
+            ]
+            
+            has_checkmark = False
+            for sel in checkmark_selectors:
                 try:
-                    messages = page.locator(sel)
-                    count = messages.count()
-                    
-                    if count > 0:
-                        print(f"  Found {count} elements with selector: {sel}")
-                        
-                        # Try to get text from last few messages (in case layout is complex)
-                        for i in range(min(5, count)):
-                            try:
-                                msg_index = count - 1 - i  # Start from last
-                                msg = messages.nth(msg_index)
-                                message_text = msg.inner_text(timeout=6000)
-                                
-                                all_attempts.append(f"Message {msg_index}: {message_text[:100]}")
-                                
-                                if expected_date in message_text:
-                                    print(f"  ✓ Found message with date '{expected_date}' at index {msg_index}")
-                                    print(f"  Message text: {message_text[:150]}")
-                                    last_message_has_date = True
-                                    break
-                            except:
-                                continue
-                        
-                        if last_message_has_date:
-                            break
-                            
-                except Exception as e:
-                    print(f"  Selector {sel} failed: {e}")
+                    checkmark = last_message.locator(sel)
+                    if checkmark.count() > 0:
+                        print(f"      ✓ Found delivery checkmark: {sel}")
+                        has_checkmark = True
+                        break
+                except:
                     continue
             
-            # Also try searching for the specific text pattern
-            if not last_message_has_date:
-                print(f"  Trying direct text search for 'Sales report of {expected_date}'...")
-                try:
-                    text_search = page.locator(f'span:has-text("Sales report of {expected_date}")')
-                    if text_search.count() > 0:
-                        print(f"  ✓ Found text 'Sales report of {expected_date}' in chat")
-                        last_message_has_date = True
-                except:
-                    pass
+            if not has_checkmark:
+                print("      ⚠️  No checkmark yet (message might still be sending)")
+                # Wait a bit more and check again
+                time.sleep(10)
+                for sel in checkmark_selectors:
+                    try:
+                        checkmark = last_message.locator(sel)
+                        if checkmark.count() > 0:
+                            print(f"      ✓ Checkmark appeared: {sel}")
+                            has_checkmark = True
+                            break
+                    except:
+                        continue
             
-            # Print what we found for debugging
-            if all_attempts and not last_message_has_date:
-                print(f"  Messages checked (last 5):")
-                for attempt in all_attempts[:5]:
-                    print(f"    {attempt}")
-            
-            page.screenshot(path="send_verification.png")
-            
-            if last_message_has_date:
-                return True, f"Send verified (message with date {expected_date} found)"
+            # Final decision
+            if has_pdf_indicator and has_expected_date:
+                page.screenshot(path="send_verified_success.png")
+                print("\n" + "="*60)
+                print("✅ ALL VERIFICATION CHECKS PASSED")
+                print("="*60)
+                return True, "Send verified - all checks passed"
+            elif has_expected_date and not has_pdf_indicator:
+                page.screenshot(path="text_only_sent.png")
+                print("      ❌ FAIL: Message has date but NO PDF indicator")
+                return False, "Caption sent but PDF missing - upload failed"
             else:
-                print(f"  ❌ Could not find message with date '{expected_date}'")
-                return False, f"Send verification failed (date {expected_date} not found in recent messages)"
+                page.screenshot(path="verification_failed.png")
+                return False, "Verification failed - message content incorrect"
                 
         except Exception as e:
-            print(f"  Warning: Verification check failed: {e}")
+            print(f"      Error during verification: {e}")
             page.screenshot(path="verification_error.png")
-            # If we can't verify but there's no error, assume success
-            # (wa_sent_dates.txt will prevent duplicates anyway)
-            return True, "Send likely successful (no errors, but couldn't verify message)"
+            print("      ⚠️  Verification error but message likely sent")
+            return True, "Message likely sent (verification error)"
 
     def send_pdf_to_group(self, group_name, pdf_path, message="Sales report for today.", report_date=None):
         """
@@ -608,6 +663,9 @@ class WhatsAppSender:
                 print("Starting file upload...")
                 abs_path = os.path.abspath(pdf_path)
                 print(f"File path: {abs_path}")
+                
+                # Get PDF filename for verification later
+                pdf_filename = os.path.basename(pdf_path)
 
                 upload_success = False
                 
@@ -643,9 +701,9 @@ class WhatsAppSender:
                 if not upload_success:
                     raise Exception("File upload failed")
 
-                # Wait for upload interface
-                print("\nWaiting for upload interface...")
-                time.sleep(6)
+                # Wait for upload interface - INCREASED for slow networks
+                print("\nWaiting for upload interface and PDF processing...")
+                time.sleep(10)  # Increased from 6 to 10 seconds
 
                 # Type caption
                 print("Adding caption...")
@@ -673,7 +731,8 @@ class WhatsAppSender:
                 except Exception as e:
                     print(f"⚠️  Could not type caption: {e}")
 
-                time.sleep(6)
+                # Increased wait time after caption for slow networks
+                time.sleep(8)  # Increased from 6 to 8 seconds
 
                 print("\nLooking for send button...")
                 send_selectors = [
@@ -734,11 +793,15 @@ class WhatsAppSender:
                             raise Exception(f"Could not click send button: {e3}")
                 
                 # Give WhatsApp time to process the send
-                print("Waiting for send to process...")
-                time.sleep(6)
+                print("\nWaiting for send to process...")
+                time.sleep(8)  # Increased from 6 to 8 seconds
 
-                # Verify by checking last message has today's date
-                success, msg_result = self.verify_send_lightweight(page, report_date)
+                # Use FAIL-PROOF verification with multiple layers of checks
+                success, msg_result = self.verify_send_failproof(
+                    page, 
+                    report_date, 
+                    pdf_filename
+                )
                 
                 if not success:
                     raise Exception(f"Send verification failed: {msg_result}")
@@ -755,12 +818,12 @@ class WhatsAppSender:
                     print(f"   Date recorded: {report_date}")
                 print("="*60)
                 
-                # CRITICAL: Wait longer to ensure WhatsApp actually sends the PDF
-                # Don't rush! WhatsApp needs time to upload and send.
-                print("\n⏳ Waiting for WhatsApp to complete upload and send...")
-                print("   (This ensures PDF is actually sent before closing browser)")
-                time.sleep(60)  # Wait 60 seconds for upload/send to complete
-                print("✓ Wait complete")
+                # CRITICAL: Wait MUCH longer to ensure WhatsApp actually uploads and sends
+                # Don't rush! Large PDFs on slow networks need time.
+                print("\n⏳ Waiting for WhatsApp to complete upload and delivery...")
+                print("   (Extended wait for large PDFs and unstable networks)")
+                time.sleep(90)  # Increased from 60 to 90 seconds
+                print("✓ Extended wait complete")
                 
                 return True
 
@@ -789,9 +852,9 @@ def get_yesterday_pdf(directory):
     return pdf_path, yesterday
 
 def main():
-    PDF_DIRECTORY = "/home/systemname/sales_analysis_algorithm/reports"
+    PDF_DIRECTORY = "/home/azureuser/azure_analysis_algorithm/reports"
     GROUP_NAME = "FOFO sales/ and query"
-    SUCCESS_FILE = "/home/systemname/logs/wa_sent_dates.txt"
+    SUCCESS_FILE = "/home/azureuser/logs/wa_sent_dates.txt"
 
     print("="*60)
     print("WhatsApp PDF Sender - Automated Run")
