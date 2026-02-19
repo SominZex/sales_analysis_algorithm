@@ -1,5 +1,5 @@
 #!/bin/bash
-cd /home/azureuser/azure_analysis_algorithm
+cd /home/base/dir
 source vmac/bin/activate
 
 pkill -f "Xvfb :99" 2>/dev/null || true
