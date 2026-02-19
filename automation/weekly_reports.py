@@ -454,7 +454,7 @@ def generate_store_report(store_name):
         </style>
     </head>
     <body>
-        <img src="file:///home/azureuser/azure_analysis_algorithm/tns.png" class="logo" alt="Company Logo">
+        <img src="file:///home/base/dir/tns.png" class="logo" alt="Company Logo">
         <h1>📊 Weekly Store Report – {store_name}</h1>
         <div class="date-range">Week: {week_start_str} to {week_end_str}</div>
         <h2>Total Weekly Sales: ₹{total_weekly_sales:,.2f}</h2>
@@ -485,8 +485,8 @@ def generate_store_report(store_name):
     """
 
     # Save PDF
-    os.makedirs("store_reports", exist_ok=True)
-    pdf_path = os.path.join("store_reports", f"{store_name.replace(' ', '_')}_weekly_report.pdf")
+    os.makedirs("/home/base/dir/store_reports", exist_ok=True)
+    pdf_path = os.path.join("/home/base/dir/store_reports", f"{store_name.replace(' ', '_')}_weekly_report.pdf")
     pdfkit.from_string(html_template, pdf_path, configuration=PDFKIT_CONFIG, options={"enable-local-file-access": ""})
     print(f"✅ Saved {store_name} report → {pdf_path}")
 

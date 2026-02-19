@@ -73,12 +73,12 @@ HEADER_STYLE = {
 EMAIL_CONFIG = {
     'smtp_server': 'smtp.gmail.com',
     'smtp_port': 587,
-    'sender_email': 'email_id',
-    'sender_password': 'app_pw',
-    'to': 'to_mail',
-    'cc_recipients': ['cc', 'mails'],
-    'tracking_host': 'tracking_mail',
-    'summary_recipient': 'mail'
+    'sender_email': 'sender@mail.com',
+    'sender_password': 'app_password',
+    'to': 'data@newshop.in',
+    'cc_recipients': ['mail', 'list'],
+    'tracking_host': '***',
+    'summary_recipient': 'bcc@mail.com'
 }
 
 
@@ -607,9 +607,10 @@ def log_event(recipient, report_date, event):
 
 
 async def save_pdf():
-    os.makedirs("reports", exist_ok=True)
+    REPORTS_DIR = "/home/azureuser/azure_analysis_algorithm/reports"
+    os.makedirs(REPORTS_DIR, exist_ok=True)
     yesterday = (datetime.now() - timedelta(days=1)).strftime("%Y-%m-%d")
-    file_path = os.path.join("reports", f"sales_report_{yesterday}.pdf")
+    file_path = os.path.join(REPORTS_DIR, f"sales_report_{yesterday}.pdf")
 
     async with async_playwright() as p:
         browser = await p.chromium.launch(headless=True)
@@ -902,6 +903,7 @@ async def generate_and_send_report():
         print("Shutting down server...")
         time.sleep(2)
         os._exit(0)
-        
+
+
 if __name__ == '__main__':
     asyncio.run(generate_and_send_report())

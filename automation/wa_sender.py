@@ -28,8 +28,8 @@ from datetime import datetime, timedelta
 
 class WhatsAppSender:
     def __init__(self, 
-                 user_data_dir="/home/azureuser/azure_analysis_algorithm/whatsapp",
-                 success_file="/home/azureuser/logs/wa_sent_dates.txt"):
+                 user_data_dir="/home/base/dir/whatsapp",
+                 success_file="/home/base/logs/wa_sent_dates.txt"):
         """
         Initialize WhatsApp sender with persistent session
 
@@ -852,9 +852,9 @@ def get_yesterday_pdf(directory):
     return pdf_path, yesterday
 
 def main():
-    PDF_DIRECTORY = "/home/azureuser/azure_analysis_algorithm/reports"
-    GROUP_NAME = "FOFO sales/ and query"
-    SUCCESS_FILE = "/home/azureuser/logs/wa_sent_dates.txt"
+    PDF_DIRECTORY = "/home/base/dir/reports"
+    GROUP_NAME = "group_name_here"
+    SUCCESS_FILE = "/home/base/logs/wa_sent_dates.txt"
 
     print("="*60)
     print("WhatsApp PDF Sender - Automated Run")

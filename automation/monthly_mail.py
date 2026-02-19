@@ -9,13 +9,13 @@ from datetime import datetime, timedelta
 
 SMTP_SERVER = "smtp.gmail.com"
 SMTP_PORT = 587
-SENDER_EMAIL = "mail"
-SENDER_PASSWORD = "app_pw"
-CC_EMAILS = ["ccmail1", "ccmail2"]
-BCC_EMAILS = ["bccmail"]
+SENDER_EMAIL = "sender@mail.com"
+SENDER_PASSWORD = "app_password"
+CC_EMAILS = ["mail1", "mail2", "mail3"]
+BCC_EMAILS = ["bcc@mail.com"]
 
-REPORTS_DIR = "/home/azureuser/azure_analysis_algorithm/monthly_reports"
-PARTNER_FILE = "/home/azureuser/azure_analysis_algorithm/partner.csv"
+REPORTS_DIR = "/home/base/dir/store_reports"
+PARTNER_FILE = "/home/base/dir/partner.csv"
 
 def create_email_body(store_name):
     """Return the HTML email body for a specific store."""
