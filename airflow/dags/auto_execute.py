@@ -16,12 +16,12 @@ default_args = {
 }
 
 def check_weekly(**context):
-    if context["logical_date"].weekday() == 0:
+    if context["data_interval_end"].weekday() == 0:
         return "weekly_reports"
     return "skip_weekly"
 
 def check_monthly(**context):
-    if context["logical_date"].day == 1:
+    if context["data_interval_end"].day == 1:
         return "monthly_reports"
     return "skip_monthly"
 
