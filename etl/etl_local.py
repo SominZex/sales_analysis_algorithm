@@ -72,7 +72,7 @@ class CSVDownloader:
     def download_csv(self, order_type="online", from_date=None, to_date=None):
         if not self.token:
             if not self.authenticate():
-                return None
+                return None 
 
         csv_url = f"{self.base_url}/orders/orderReportCSV"
         params = {"orderType": order_type, "fromDate": from_date, "toDate": to_date}
@@ -182,8 +182,10 @@ def transform_data(df: pd.DataFrame) -> pd.DataFrame:
     # time -> HH:MM:SS string or None (take first 8 characters)
     if "time" in df.columns:
         print("Processing time column...")
-        df["time"] = df["time"].astype(str).str[:8]  # Take first 8 characters (HH:MM:SS)
+        df["time"] = df["time"].astype(str).str[:8]
         df["time"] = df["time"].replace(["nan", "NaT"], None)
+
+        
         print(f"Sample time values: {df[df['time'].notna()]['time'].head(3).tolist()}")
 
     # Process numeric columns more efficiently

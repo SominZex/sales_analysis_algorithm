@@ -10,20 +10,20 @@
 - Automatically distribute reports via Email and WhatsApp
 - Operate without manual intervention after deployment
 ### The system follows a hybrid orchestration architecture:
-- Apache Airflow → ETL layer
-- Cron → Reporting & Notification layer
-#### This project intentionally does not include an interactive dashboard or UI.
-#### All insights are delivered automatically via scheduled reports.
+- Apache Airflow orchestrates ETL, reporting, and notifications
+
 
 ## Key Capabilities 
-- Automated ETL pipeline
-- Hybrid orchestration architecture
+- End-to-end Airflow orchestration
 - Deterministic DAG execution
+- Daily, Weekly, Monthly branching logic
+- Automated ETL pipeline
 - Growth comparison logic
 - Automated PDF generation
 - WhatsApp automation
 - Email automation
 - Structured logging
+- Built-in retry & alerting
 - Zero manual operational dependency
 
 ## System Architecture
@@ -31,14 +31,15 @@
 
 | Layer          | Technology                  | Responsibility                                     |
 | -------------- | --------------------------- | -------------------------------------------------- |
-| Data Layer     | Apache Airflow (Dockerized) | Extraction, transformation, aggregation            |
-| Delivery Layer | Cron (Azure VM)             | Report rendering, browser automation, distribution |
+| Orchestration     | Apache Airflow (Dockerized) | ETL, Analysis, Reporting, Notifications          |
 
-#### This separation enforces:
-- Deterministic data workflows
-- Runtime isolation
-- Fault containment
-- Operational stability
+
+#### Benefits:
+- Centralized scheduling
+- Clear dependency management
+- Built-in retries & alerting
+- Simplified operations
+- No time-drift between systems
 
 ### Data Engineering Layer (Apache Airflow)
 #### The ETL layer is orchestrated using Apache Airflow, deployed via Docker.
@@ -69,13 +70,6 @@
 - Duplicate prevention logic
 - File-system bound execution
 
-### Why Reporting Is Not in Airflow
-#### These workloads depend on:
-- Playwright + Chromium browser automation (No Whatsapp API used)
-- Xvfb virtual display
-- wkhtmltopdf system bindings
-- Stateful execution logic
-- OS-level binary dependencies
 
 #### Running browser automation inside containerized Airflow workers introduced:
 - Browser instability
@@ -89,13 +83,18 @@ These workloads involve browser sessions and GUI-level automation, which are bet
 
 ```mermaid
 flowchart TD
-    A[Airflow Scheduler] --> B[Extract]
-    B --> C[Transform]
-    C --> D[Aggregate]
-    D --> E[Materialized KPI Tables]
-    E --> F[Cron Scheduler]
-    F --> G[Generate Reports]
-    G --> H[Email & WhatsApp Distribution]
+    A[Airflow Scheduler] --> B[ETL Pipeline]
+    B --> C[Product Update]
+    C --> D[Daily Analysis]
+    D --> E[Daily WhatsApp]
+    E --> F{Weekly?}
+    F -->|Yes| G[Weekly Reports]
+    G --> H[Weekly Mail]
+    F -->|No| I[Skip Weekly]
+    E --> J{Monthly?}
+    J -->|Yes| K[Monthly Reports]
+    K --> L[Monthly Mail]
+    J -->|No| M[Skip Monthly]
 ```
 
 ## Reporting Logic
@@ -168,18 +167,6 @@ docker compose up -d
 ### Access UI
 ```bash
 http://localhost:8080
-```
-
-
-## Cron Configuration
-### Navigate to terminal and type "crontab -e" (linux only) then paste the folllwing cron jobs (make sure you have the necessary shell script created in the directory, .sh files are not included here):
-``` bash
-45 1 * * * /sales_analysis_algorithm/run_analysis.sh
-50 1 * * * /sales_analysis_algorithm/wa_sender.sh
-05 2 * * 1 /sales_analysis_algorithm/run_weekly_reports.sh
-15 3 * * 1 /sales_analysis_algorithm/weekly_mail.sh
-10 4 1 * * /sales_analysis_algorithm/monthly_reports.sh
-02 5 1 * * /sales_analysis_algorithm/monthly_mail.sh
 ```
 
 ## Observability & Reliability
