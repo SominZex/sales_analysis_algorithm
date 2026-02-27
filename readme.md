@@ -59,8 +59,7 @@
 - Controlled retry policy
 - Containerized execution environment
 
-### Reporting & Distribution Layer (Cron-Based)
-####  The reporting layer runs directly on the Azure VM using cron scheduling.
+### Reporting & Distribution Layer:
 
 ### Responsibilities
 - PDF report generation
@@ -70,14 +69,6 @@
 - Duplicate prevention logic
 - File-system bound execution
 
-
-#### Running browser automation inside containerized Airflow workers introduced:
-- Browser instability
-- Resource contention
-- Increased orchestration complexity
-
-#### Therefore, delivery workloads are intentionally isolated at the OS level.
-These workloads involve browser sessions and GUI-level automation, which are better handled in controlled shell execution environments rather than containerized orchestration.
 
 ## Execution Flow
 
@@ -198,11 +189,7 @@ http://localhost:8080
 ### GitHub Actions are configured for:
 - Code validation
 - Basic test execution
-- Runtime automation is handled exclusively by cron on Azure VM
-
-### Runtime scheduling is controlled by:
-- Airflow (Data Layer)
-- Cron (Delivery Layer)
+- Runtime automation is handled exclusively by Azure VM
 
 ## Design Principles
 - Separation of concerns
