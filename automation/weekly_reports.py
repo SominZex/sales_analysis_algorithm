@@ -10,6 +10,13 @@ from sqlalchemy.exc import OperationalError
 from sqlalchemy.pool import NullPool
 from dotenv import load_dotenv
 
+# ── NEW: import LLM recommender ───────────────────────────────────────────────
+from llm_recommender import (
+    brand_recommendation,
+    category_recommendation,
+    product_recommendation,
+)
+
 load_dotenv()
 
 def require_env(name: str) -> str:
@@ -46,7 +53,6 @@ def safe_read_sql(query, params=None, retries=5, delay=3):
     """Executes SQL query with retries for transient DB disconnects"""
     for attempt in range(retries):
         try:
-            # Create fresh connection each time
             with engine.connect() as conn:
                 result = pd.read_sql(query, conn, params=params)
                 return result
@@ -58,12 +64,10 @@ def safe_read_sql(query, params=None, retries=5, delay=3):
             if attempt == retries - 1:
                 raise RuntimeError(f"❌ Query failed after {retries} retries: {error_str[:200]}")
             
-            # Exponential backoff: 3s, 6s, 12s, 24s, 48s
             wait_time = delay * (2 ** attempt)
             print(f"   ⏳ Waiting {wait_time}s before retry...")
             time.sleep(wait_time)
             
-            # Dispose engine on connection errors
             if "EOF" in error_str or "closed" in error_str.lower() or "terminated" in error_str.lower():
                 print("   🔄 Recreating database connection pool...")
                 engine.dispose()
@@ -140,9 +144,9 @@ def generate_store_report(store_name):
         week_end_str = "N/A"
     else:
         week_start = date_info['week_start'].iloc[0]
-        week_end = date_info['week_end'].iloc[0]
+        week_end   = date_info['week_end'].iloc[0]
         week_start_str = week_start.strftime('%d %b %Y')
-        week_end_str = week_end.strftime('%d %b %Y')
+        week_end_str   = week_end.strftime('%d %b %Y')
     
     # === Get Previous 2 Weeks Average and Current Week Sales ===
     comparison_query = """
@@ -184,11 +188,11 @@ def generate_store_report(store_name):
     
     if not comparison_df.empty and comparison_df['current_week_sales'].iloc[0] is not None:
         current_week_sales = float(comparison_df['current_week_sales'].iloc[0])
-        prev_2_weeks_avg = float(comparison_df['prev_2_weeks_avg'].iloc[0]) if comparison_df['prev_2_weeks_avg'].iloc[0] is not None else 0.0
+        prev_2_weeks_avg   = float(comparison_df['prev_2_weeks_avg'].iloc[0]) if comparison_df['prev_2_weeks_avg'].iloc[0] is not None else 0.0
         
         if prev_2_weeks_avg > 0:
             percentage_diff = ((current_week_sales - prev_2_weeks_avg) / prev_2_weeks_avg) * 100
-            diff_sign = "+" if percentage_diff >= 0 else ""
+            diff_sign  = "+" if percentage_diff >= 0 else ""
             diff_color = "#28a745" if percentage_diff >= 0 else "#dc3545"
             comparison_text = f"""
                 <div style="text-align: center; margin-top: 10px;">
@@ -202,7 +206,7 @@ def generate_store_report(store_name):
             comparison_text = '<div style="text-align: center; margin-top: 10px;"><span style="font-size: 18px; color: #666;">Insufficient data for comparison</span></div>'
     else:
         current_week_sales = 0.0
-        comparison_text = '<div style="text-align: center; margin-top: 10px;"><span style="font-size: 18px; color: #666;">No sales data available</span></div>'
+        comparison_text    = '<div style="text-align: center; margin-top: 10px;"><span style="font-size: 18px; color: #666;">No sales data available</span></div>'
     
     # === Queries with Contribution % and Profit Margin %
     brand_query = """
@@ -308,19 +312,11 @@ def generate_store_report(store_name):
     """
 
     # Fetch data
-    brand_df = safe_read_sql(brand_query, params=(store_name, store_name, store_name))
+    brand_df    = safe_read_sql(brand_query,    params=(store_name, store_name, store_name))
     category_df = safe_read_sql(category_query, params=(store_name, store_name, store_name))
-    product_df = safe_read_sql(product_query, params=(store_name, store_name, store_name))
-    
-    # Add percentage symbols
-    for df in [brand_df, category_df, product_df]:
-        if not df.empty:
-            if 'contrib_percent' in df.columns:
-                df['contrib_percent'] = df['contrib_percent'].astype(str) + '%'
-            if 'profit_margin' in df.columns:
-                df['profit_margin'] = df['profit_margin'].astype(str) + '%'
+    product_df  = safe_read_sql(product_query,  params=(store_name, store_name, store_name))
 
-    # === MODIFIED: Query for Total Sales, Total Cost, Total Profit, and AVERAGE Profit Margin% ===
+    # === MODIFIED: Query for Total Sales, Total Cost, Total Profit, and AVERAGE Profit Margin%
     total_sales_profit_query = """
         WITH latest_date AS (
             SELECT MAX("orderDate")::date AS max_date
@@ -352,22 +348,37 @@ def generate_store_report(store_name):
     total_sales_profit_df = safe_read_sql(total_sales_profit_query, params=(store_name, store_name))
     
     if not total_sales_profit_df.empty and total_sales_profit_df["total_weekly_sales"].iloc[0] is not None:
-        total_weekly_sales = float(total_sales_profit_df["total_weekly_sales"].iloc[0])
-        total_weekly_cost = float(total_sales_profit_df["total_weekly_cost"].iloc[0]) if total_sales_profit_df["total_weekly_cost"].iloc[0] is not None else 0.0
-        total_weekly_profit = float(total_sales_profit_df["total_weekly_profit"].iloc[0]) if total_sales_profit_df["total_weekly_profit"].iloc[0] is not None else 0.0
+        total_weekly_sales        = float(total_sales_profit_df["total_weekly_sales"].iloc[0])
+        total_weekly_cost         = float(total_sales_profit_df["total_weekly_cost"].iloc[0]) if total_sales_profit_df["total_weekly_cost"].iloc[0] is not None else 0.0
+        total_weekly_profit       = float(total_sales_profit_df["total_weekly_profit"].iloc[0]) if total_sales_profit_df["total_weekly_profit"].iloc[0] is not None else 0.0
         avg_profit_margin_percent = float(total_sales_profit_df["avg_profit_margin_percent"].iloc[0]) if total_sales_profit_df["avg_profit_margin_percent"].iloc[0] is not None else 0.0
     else:
-        total_weekly_sales = 0.0
-        total_weekly_cost = 0.0
-        total_weekly_profit = 0.0
+        total_weekly_sales        = 0.0
+        total_weekly_cost         = 0.0
+        total_weekly_profit       = 0.0
         avg_profit_margin_percent = 0.0
 
-    # --- Charts ---
-    brand_chart = plot_chart(brand_df, "brandName", "total_sales", "Top 10 Brands by Sales")
-    category_chart = plot_chart(category_df, "categoryName", "total_sales", "Top 10 Categories by Sales")
-    product_chart = plot_chart(product_df, "productName", "total_sales", "Top 10 Products by Sales")
+    # ── LLM calls (numeric dfs, before % suffix is added) ────────────────────
+    print(f"  🤖 Generating LLM recommendations for {store_name}...")
+    brand_rec    = brand_recommendation   (store_name, brand_df,    total_weekly_sales, report_type="weekly")
+    category_rec = category_recommendation(store_name, category_df, total_weekly_sales, report_type="weekly")
+    product_rec  = product_recommendation (store_name, product_df,  total_weekly_sales, report_type="weekly")
+    # ─────────────────────────────────────────────────────────────────────────
 
-    # --- HTML Template with AVERAGE Profit Margin Display ---
+    # Add percentage symbols (AFTER LLM calls)
+    for df in [brand_df, category_df, product_df]:
+        if not df.empty:
+            if 'contrib_percent' in df.columns:
+                df['contrib_percent'] = df['contrib_percent'].astype(str) + '%'
+            if 'profit_margin' in df.columns:
+                df['profit_margin'] = df['profit_margin'].astype(str) + '%'
+
+    # --- Charts ---
+    brand_chart    = plot_chart(brand_df,    "brandName",    "total_sales", "Top 10 Brands by Sales")
+    category_chart = plot_chart(category_df, "categoryName", "total_sales", "Top 10 Categories by Sales")
+    product_chart  = plot_chart(product_df,  "productName",  "total_sales", "Top 10 Products by Sales")
+
+    # --- HTML Template ---
     html_template = f"""
     <html>
     <head>
@@ -454,7 +465,7 @@ def generate_store_report(store_name):
         </style>
     </head>
     <body>
-        <img src="file:///home/base/dir/tns.png" class="logo" alt="Company Logo">
+        <img src="file:///base/dir//tns.png" class="logo" alt="Company Logo">
         <h1>📊 Weekly Store Report – {store_name}</h1>
         <div class="date-range">Week: {week_start_str} to {week_end_str}</div>
         <h2>Total Weekly Sales: ₹{total_weekly_sales:,.2f}</h2>
@@ -472,21 +483,24 @@ def generate_store_report(store_name):
         <div class="table-title">Top 50 Brands (by Sales)</div>
         {brand_df.to_html(index=False, classes="styled-table")}
         {brand_chart}
+        {brand_rec}
 
         <div class="table-title">Top 50 Categories (by Sales)</div>
         {category_df.to_html(index=False, classes="styled-table")}
         {category_chart}
+        {category_rec}
 
         <div class="table-title">Top 100 Products (by Sales)</div>
         {product_df.to_html(index=False, classes="styled-table")}
         {product_chart}
+        {product_rec}
     </body>
     </html>
     """
 
     # Save PDF
-    os.makedirs("/home/base/dir/store_reports", exist_ok=True)
-    pdf_path = os.path.join("/home/base/dir/store_reports", f"{store_name.replace(' ', '_')}_weekly_report.pdf")
+    os.makedirs("/base/dir//store_reports", exist_ok=True)
+    pdf_path = os.path.join("/base/dir//store_reports", f"{store_name.replace(' ', '_')}_weekly_report.pdf")
     pdfkit.from_string(html_template, pdf_path, configuration=PDFKIT_CONFIG, options={"enable-local-file-access": ""})
     print(f"✅ Saved {store_name} report → {pdf_path}")
 

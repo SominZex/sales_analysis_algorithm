@@ -9,6 +9,13 @@ from sqlalchemy import create_engine
 from sqlalchemy.exc import OperationalError
 from dotenv import load_dotenv
 
+# ── NEW: import LLM recommender ───────────────────────────────────────────────
+from llm_recommender import (
+    brand_recommendation,
+    category_recommendation,
+    product_recommendation,
+)
+
 load_dotenv()
 
 def require_env(name: str) -> str:
@@ -93,7 +100,6 @@ def generate_store_report(store_name):
     """Generate monthly PDF report for one store - for PREVIOUS COMPLETE MONTH"""
     
     # Get the date range for the previous complete month
-    # Logic: Report the most recent complete month that has data
     date_range_query = """
         WITH latest_date AS (
             SELECT MAX("orderDate")::date AS max_date
@@ -103,10 +109,8 @@ def generate_store_report(store_name):
         target_month AS (
             SELECT 
                 CASE 
-                    -- If we have data from last month (Nov), report last month
                     WHEN (SELECT DATE_TRUNC('month', max_date) FROM latest_date) >= DATE_TRUNC('month', CURRENT_DATE - INTERVAL '1 month')
                     THEN DATE_TRUNC('month', CURRENT_DATE - INTERVAL '1 month')
-                    -- Otherwise, report the most recent month we have data for
                     ELSE DATE_TRUNC('month', (SELECT max_date FROM latest_date))
                 END AS report_month
         )
@@ -318,19 +322,12 @@ def generate_store_report(store_name):
     """
 
     # Fetch data
-    brand_df = safe_read_sql(brand_query, params=(store_name, store_name, store_name))
+    brand_df    = safe_read_sql(brand_query,    params=(store_name, store_name, store_name))
     category_df = safe_read_sql(category_query, params=(store_name, store_name, store_name))
-    product_df = safe_read_sql(product_query, params=(store_name, store_name, store_name))
-    
-    # Add percentage symbols
-    for df in [brand_df, category_df, product_df]:
-        if not df.empty:
-            if 'contrib_percent' in df.columns:
-                df['contrib_percent'] = df['contrib_percent'].astype(str) + '%'
-            if 'profit_margin' in df.columns:
-                df['profit_margin'] = df['profit_margin'].astype(str) + '%'
+    product_df  = safe_read_sql(product_query,  params=(store_name, store_name, store_name))
 
-    # === MODIFIED: Query for Total Sales, Total Cost, Total Profit, and AVERAGE Profit Margin% ===
+    # === NEW: Generate LLM recommendations BEFORE adding % suffix ============
+    # (recommender reads raw numeric columns; we pass total_monthly_sales below)
     total_sales_profit_query = """
         WITH latest_date AS (
             SELECT MAX("orderDate")::date AS max_date
@@ -370,22 +367,39 @@ def generate_store_report(store_name):
     total_sales_profit_df = safe_read_sql(total_sales_profit_query, params=(store_name, store_name))
     
     if not total_sales_profit_df.empty and total_sales_profit_df["total_monthly_sales"].iloc[0] is not None:
-        total_monthly_sales = float(total_sales_profit_df["total_monthly_sales"].iloc[0])
-        total_monthly_cost = float(total_sales_profit_df["total_monthly_cost"].iloc[0]) if total_sales_profit_df["total_monthly_cost"].iloc[0] is not None else 0.0
-        total_monthly_profit = float(total_sales_profit_df["total_monthly_profit"].iloc[0]) if total_sales_profit_df["total_monthly_profit"].iloc[0] is not None else 0.0
+        total_monthly_sales      = float(total_sales_profit_df["total_monthly_sales"].iloc[0])
+        total_monthly_cost       = float(total_sales_profit_df["total_monthly_cost"].iloc[0]) if total_sales_profit_df["total_monthly_cost"].iloc[0] is not None else 0.0
+        total_monthly_profit     = float(total_sales_profit_df["total_monthly_profit"].iloc[0]) if total_sales_profit_df["total_monthly_profit"].iloc[0] is not None else 0.0
         avg_profit_margin_percent = float(total_sales_profit_df["avg_profit_margin_percent"].iloc[0]) if total_sales_profit_df["avg_profit_margin_percent"].iloc[0] is not None else 0.0
     else:
-        total_monthly_sales = 0.0
-        total_monthly_cost = 0.0
-        total_monthly_profit = 0.0
+        total_monthly_sales       = 0.0
+        total_monthly_cost        = 0.0
+        total_monthly_profit      = 0.0
         avg_profit_margin_percent = 0.0
 
-    # --- Charts ---
-    brand_chart = plot_chart(brand_df, "brandName", "total_sales", "Top 10 Brands by Sales")
-    category_chart = plot_chart(category_df, "categoryName", "total_sales", "Top 10 Categories by Sales")
-    product_chart = plot_chart(product_df, "productName", "total_sales", "Top 10 Products by Sales")
+    # ── LLM calls (numeric dfs, before % suffix is added) ────────────────────
+    print(f"  🤖 Generating LLM recommendations for {store_name}...")
+    brand_rec    = brand_recommendation   (store_name, brand_df,    total_monthly_sales, report_type="monthly")
+    category_rec = category_recommendation(store_name, category_df, total_monthly_sales, report_type="monthly")
+    product_rec  = product_recommendation (store_name, product_df,  total_monthly_sales, report_type="monthly")
+    # ─────────────────────────────────────────────────────────────────────────
 
-    # --- HTML Template with AVERAGE Profit Margin Display ---
+    # Add percentage symbols (AFTER LLM calls)
+    for df in [brand_df, category_df, product_df]:
+        if not df.empty:
+            if 'contrib_percent' in df.columns:
+                df['contrib_percent'] = df['contrib_percent'].astype(str) + '%'
+            if 'profit_margin' in df.columns:
+                df['profit_margin'] = df['profit_margin'].astype(str) + '%'
+            if 'PROFIT_MARGIN' in df.columns:
+                df['PROFIT_MARGIN'] = df['PROFIT_MARGIN'].astype(str) + '%'
+
+    # --- Charts ---
+    brand_chart    = plot_chart(brand_df,    "brandName",    "total_sales", "Top 10 Brands by Sales")
+    category_chart = plot_chart(category_df, "categoryName", "total_sales", "Top 10 Categories by Sales")
+    product_chart  = plot_chart(product_df,  "productName",  "total_sales", "Top 10 Products by Sales")
+
+    # --- HTML Template ---
     html_template = f"""
     <html>
     <head>
@@ -472,7 +486,7 @@ def generate_store_report(store_name):
         </style>
     </head>
     <body>
-        <img src="file:///home/base/dir/img.png" class="logo" alt="Company Logo">
+        <img src="file:///base/dir//tns.png" class="logo" alt="Company Logo">
         <h1>📊 Monthly Store Report – {store_name}</h1>
         <div class="date-range">Month: {month_start_str} to {month_end_str}</div>
         <h2>Total Monthly Sales: ₹{total_monthly_sales:,.2f}</h2>
@@ -490,22 +504,24 @@ def generate_store_report(store_name):
         <div class="table-title">Top 50 Brands (by Sales)</div>
         {brand_df.to_html(index=False, classes="styled-table")}
         {brand_chart}
+        {brand_rec}
 
         <div class="table-title">Top 50 Categories (by Sales)</div>
         {category_df.to_html(index=False, classes="styled-table")}
         {category_chart}
+        {category_rec}
 
         <div class="table-title">Top 100 Products (by Sales)</div>
         {product_df.to_html(index=False, classes="styled-table")}
         {product_chart}
+        {product_rec}
     </body>
     </html>
     """
 
-        # Save PDF
-    # ✅
-    os.makedirs("/home/base/dir/monthly_reports", exist_ok=True)
-    pdf_path = os.path.join("/home/base/dir/monthly_reports", f"{store_name.replace(' ', '_')}_monthly_report.pdf")
+    # Save PDF
+    os.makedirs("/base/dir//monthly_reports", exist_ok=True)
+    pdf_path = os.path.join("/base/dir//monthly_reports", f"{store_name.replace(' ', '_')}_monthly_report.pdf")
     pdfkit.from_string(html_template, pdf_path, configuration=PDFKIT_CONFIG, options={"enable-local-file-access": ""})
     print(f"✅ Saved {store_name} report → {pdf_path}")
 
