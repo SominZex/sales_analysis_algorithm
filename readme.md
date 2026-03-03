@@ -1,4 +1,4 @@
-# Sales Analysis Automation System
+# LLM Integrated Sales intelligence system
 # Flowchart
 <img width="1920" height="1080" alt="flowchrt" src="https://github.com/user-attachments/assets/454e4bf6-a3bc-4a28-b916-6d92e24f8a59" />
 
@@ -7,10 +7,16 @@
 ### This project is a fully automated sales reporting engine designed to:
 - Generate Daily, Weekly, and Monthly business performance reports
 - Process structured ETL workflows
+- Persist historical performance snapshots
+- Detect performance risks and trend shifts
+- Generate LLM-grounded action recommendations
 - Automatically distribute reports via Email and WhatsApp
 - Operate without manual intervention after deployment
+
 ### The system follows a hybrid orchestration architecture:
 - Apache Airflow orchestrates ETL, reporting, and notifications
+- A deterministic Intelligence Engine computes KPIs and risk signals
+- A constrained LLM layer converts structured analytics into prioritized store-level actions
 
 
 ## Key Capabilities 
@@ -18,20 +24,27 @@
 - Deterministic DAG execution
 - Daily, Weekly, Monthly branching logic
 - Automated ETL pipeline
-- Growth comparison logic
+- Growth comparison logic (WoW & MoM)
+- Snapshot-based historical memory
+- Revenue-weighted risk scoring
+- Predictive signal detection (stockout, margin erosion, rising stars)
 - Automated PDF generation
 - WhatsApp automation
 - Email automation
 - Structured logging
 - Built-in retry & alerting
+- Groq → Ollama fallback for LLM reliability
 - Zero manual operational dependency
 
 ## System Architecture
 #### The system follows a layered orchestration strategy:
 
-| Layer          | Technology                  | Responsibility                                     |
-| -------------- | --------------------------- | -------------------------------------------------- |
-| Orchestration     | Apache Airflow (Dockerized) | ETL, Analysis, Reporting, Notifications          |
+| Layer | Technology | Responsibility |
+|-------|------------|----------------|
+| Orchestration | Apache Airflow (Dockerized) | ETL, Analysis, Reporting, Notifications |
+| Intelligence Engine | Python (Pandas + custom logic) | KPI computation, trend detection, risk scoring |
+| Snapshot Store | PostgreSQL | Weekly & Monthly historical memory |
+| LLM Layer | Groq (LLaMA 3.1) + Ollama | Deterministic recommendation rendering |
 
 
 #### Benefits:
@@ -39,6 +52,8 @@
 - Clear dependency management
 - Built-in retries & alerting
 - Simplified operations
+- Historical trend awareness
+- Deterministic insight generation
 - No time-drift between systems
 
 ### Data Engineering Layer (Apache Airflow)
@@ -58,6 +73,9 @@
 - Dependency-aware scheduling
 - Controlled retry policy
 - Containerized execution environment
+- Snapshot-backed intelligence memory
+- Numeric-grounded LLM outputs
+- LLM used strictly as a structured rendering layer
 
 ### Reporting & Distribution Layer:
 
@@ -68,6 +86,7 @@
 - Email distribution
 - Duplicate prevention logic
 - File-system bound execution
+- Embedded KPI-based action recommendations
 
 
 ## Execution Flow
@@ -77,15 +96,17 @@ flowchart TD
     A[Airflow Scheduler] --> B[ETL Pipeline]
     B --> C[Product Update]
     C --> D[Daily Analysis]
-    D --> E[Daily WhatsApp]
-    E --> F{Weekly?}
-    F -->|Yes| G[Weekly Reports]
-    G --> H[Weekly Mail]
-    F -->|No| I[Skip Weekly]
-    E --> J{Monthly?}
-    J -->|Yes| K[Monthly Reports]
-    K --> L[Monthly Mail]
-    J -->|No| M[Skip Monthly]
+    D --> E[Intelligence Engine]
+    E --> F[LLM Recommendation Layer]
+    F --> G[Daily WhatsApp]
+    G --> H{Weekly?}
+    H -->|Yes| I[Weekly Snapshot + Reports]
+    I --> J[Weekly Mail]
+    H -->|No| K[Skip Weekly]
+    G --> L{Monthly?}
+    L -->|Yes| M[Monthly Snapshot + Reports]
+    M --> N[Monthly Mail]
+    L -->|No| O[Skip Monthly]
 ```
 
 ## Reporting Logic
@@ -100,10 +121,19 @@ flowchart TD
 #### Weekly Report
 - Aggregates prior week performance
 - Designed for operational and management stakeholders
+- Aggregates prior week performance
+- WoW revenue & quantity comparison
+- Margin shift detection
+- Risk scoring and anomaly detection
+- Operational action recommendations
 
 ## Monthly Report
 - Consolidated monthly business performance
 - Strategic performance summary
+- Consolidated monthly business performance
+- MoM comparison
+- Strategic performance summary
+- Trend-aware intelligence insights
 
 
 ## Installation & Setup
