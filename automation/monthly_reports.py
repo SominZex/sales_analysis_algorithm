@@ -14,6 +14,7 @@ from llm_recommender import (
     brand_recommendation,
     category_recommendation,
     product_recommendation,
+    save_monthly_snapshot,
 )
 
 load_dotenv()
@@ -379,11 +380,11 @@ def generate_store_report(store_name):
 
     # ── LLM calls (numeric dfs, before % suffix is added) ────────────────────
     print(f"  🤖 Generating LLM recommendations for {store_name}...")
-    brand_rec    = brand_recommendation   (store_name, brand_df,    total_monthly_sales, report_type="monthly")
-    category_rec = category_recommendation(store_name, category_df, total_monthly_sales, report_type="monthly")
-    product_rec  = product_recommendation (store_name, product_df,  total_monthly_sales, report_type="monthly")
-    # ─────────────────────────────────────────────────────────────────────────
+    brand_rec = brand_recommendation(store_name, brand_df, total_monthly_sales, month_start=month_start, engine=engine, report_type="monthly")
+    category_rec = category_recommendation(store_name, category_df, total_monthly_sales, month_start=month_start, engine=engine, report_type="monthly")
+    product_rec = product_recommendation(store_name, product_df, total_monthly_sales, month_start=month_start, engine=engine, report_type="monthly")
 
+    save_monthly_snapshot(store_name, month_start, brand_df, category_df, product_df, engine)
     # Add percentage symbols (AFTER LLM calls)
     for df in [brand_df, category_df, product_df]:
         if not df.empty:
@@ -486,7 +487,7 @@ def generate_store_report(store_name):
         </style>
     </head>
     <body>
-        <img src="file:///base/dir//tns.png" class="logo" alt="Company Logo">
+        <img src="file:///home/azureuser/azure_analysis_algorithm/tns.png" class="logo" alt="Company Logo">
         <h1>📊 Monthly Store Report – {store_name}</h1>
         <div class="date-range">Month: {month_start_str} to {month_end_str}</div>
         <h2>Total Monthly Sales: ₹{total_monthly_sales:,.2f}</h2>
@@ -520,8 +521,8 @@ def generate_store_report(store_name):
     """
 
     # Save PDF
-    os.makedirs("/base/dir//monthly_reports", exist_ok=True)
-    pdf_path = os.path.join("/base/dir//monthly_reports", f"{store_name.replace(' ', '_')}_monthly_report.pdf")
+    os.makedirs("/home/azureuser/azure_analysis_algorithm/monthly_reports", exist_ok=True)
+    pdf_path = os.path.join("/home/azureuser/azure_analysis_algorithm/monthly_reports", f"{store_name.replace(' ', '_')}_monthly_report.pdf")
     pdfkit.from_string(html_template, pdf_path, configuration=PDFKIT_CONFIG, options={"enable-local-file-access": ""})
     print(f"✅ Saved {store_name} report → {pdf_path}")
 

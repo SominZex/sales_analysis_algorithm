@@ -7,6 +7,7 @@ import time
 from io import BytesIO
 from sqlalchemy import create_engine
 from sqlalchemy.exc import OperationalError
+from llm_recommender import save_weekly_snapshot
 from sqlalchemy.pool import NullPool
 from dotenv import load_dotenv
 
@@ -360,10 +361,13 @@ def generate_store_report(store_name):
 
     # ── LLM calls (numeric dfs, before % suffix is added) ────────────────────
     print(f"  🤖 Generating LLM recommendations for {store_name}...")
-    brand_rec    = brand_recommendation   (store_name, brand_df,    total_weekly_sales, report_type="weekly")
-    category_rec = category_recommendation(store_name, category_df, total_weekly_sales, report_type="weekly")
-    product_rec  = product_recommendation (store_name, product_df,  total_weekly_sales, report_type="weekly")
-    # ─────────────────────────────────────────────────────────────────────────
+    brand_rec = brand_recommendation(store_name, brand_df,    total_weekly_sales, week_start=week_start, engine=engine, report_type="weekly")
+    category_rec = category_recommendation(store_name, category_df, total_weekly_sales, week_start=week_start, engine=engine, report_type="weekly")
+    product_rec  = product_recommendation(store_name, product_df,  total_weekly_sales, week_start=week_start, engine=engine, report_type="weekly")
+    # 
+    # ADD THIS (after product_rec, before "Add percentage symbols"):
+    
+    save_weekly_snapshot(store_name, week_start, brand_df, category_df, product_df, engine)
 
     # Add percentage symbols (AFTER LLM calls)
     for df in [brand_df, category_df, product_df]:
@@ -465,7 +469,7 @@ def generate_store_report(store_name):
         </style>
     </head>
     <body>
-        <img src="file:///base/dir//tns.png" class="logo" alt="Company Logo">
+        <img src="file:///home/azureuser/azure_analysis_algorithm/tns.png" class="logo" alt="Company Logo">
         <h1>📊 Weekly Store Report – {store_name}</h1>
         <div class="date-range">Week: {week_start_str} to {week_end_str}</div>
         <h2>Total Weekly Sales: ₹{total_weekly_sales:,.2f}</h2>
@@ -485,6 +489,8 @@ def generate_store_report(store_name):
         {brand_chart}
         {brand_rec}
 
+        
+        <div style="height: 500px;"></div>
         <div class="table-title">Top 50 Categories (by Sales)</div>
         {category_df.to_html(index=False, classes="styled-table")}
         {category_chart}
@@ -499,8 +505,8 @@ def generate_store_report(store_name):
     """
 
     # Save PDF
-    os.makedirs("/base/dir//store_reports", exist_ok=True)
-    pdf_path = os.path.join("/base/dir//store_reports", f"{store_name.replace(' ', '_')}_weekly_report.pdf")
+    os.makedirs("/home/azureuser/azure_analysis_algorithm/store_reports", exist_ok=True)
+    pdf_path = os.path.join("/home/azureuser/azure_analysis_algorithm/store_reports", f"{store_name.replace(' ', '_')}_weekly_report.pdf")
     pdfkit.from_string(html_template, pdf_path, configuration=PDFKIT_CONFIG, options={"enable-local-file-access": ""})
     print(f"✅ Saved {store_name} report → {pdf_path}")
 
