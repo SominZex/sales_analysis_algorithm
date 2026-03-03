@@ -55,7 +55,10 @@ _UNAVAILABLE = _REC_STYLE.format(
 _BULLET_RULES = (
     "LENGTH RULE: Each bullet must be exactly ONE sentence. "
     "Maximum 2 items per bullet — pick the most important only. Do not chain multiple items. "
-    "If a section list is empty, draw an insight from another section instead of writing 'none detected'."
+    "If a section list is empty, draw an insight from another section instead of writing 'none detected'. "
+    "DEDUPLICATION RULE: If a name already appeared in a previous bullet, skip it and pick the next best item. Never repeat the same name in two different bullets. "
+    "GRAMMAR RULE: Use 'this week' or 'this month' — never 'this weekly' or 'this monthly'. "
+    "SPECIFICITY RULE: Never write generic phrases like 'review range', 'optimal assortment', or 'improve pricing' — always name a specific item and a specific action."
 )
 
 
@@ -314,6 +317,109 @@ def _compute_trend(current_val: float, prev_val: float):
     pct = ((current_val - prev_val) / prev_val) * 100
     return f"{'+' if pct >= 0 else ''}{pct:.1f}%"
 
+def _enrich_with_trends(records: list, trend_data: dict, name_key: str) -> list:
+    """
+    Attaches sales_change, qty_change, margin_shift to each record dict
+    using prior-period data. Fields are omitted if no trend data exists.
+    Safe — returns original records unchanged if trend_data is empty.
+    """
+    if not trend_data:
+        return records
+    enriched = []
+    for rec in records:
+        rec = dict(rec)
+        name = rec.get(name_key, "")
+        if name in trend_data:
+            prev = trend_data[name]
+            sc = _compute_trend(rec.get("_sales", 0), prev["prev_sales"])
+            qc = _compute_trend(rec.get("_qty",   0), prev["prev_qty"])
+            curr_m = rec.get("_margin", None)
+            ms = round(curr_m - prev["prev_margin"], 1) if curr_m is not None else None
+            if sc:  rec["sales_change"] = sc
+            if qc:  rec["qty_change"]   = qc
+            if ms is not None:
+                rec["margin_shift"] = f"{'+' if ms >= 0 else ''}{ms}pp"
+        enriched.append(rec)
+    return enriched
+
+
+def _compute_predictions(df_rows: list, trend_data: dict, name_key: str) -> dict:
+    """
+    Lightweight velocity-based predictions using 2-period data.
+    Returns:
+      - stockout_risk:   items with high sales + accelerating qty demand
+      - margin_erosion:  items whose margin is declining period-over-period
+      - rising_stars:    items outside top revenue but with strong sales growth
+    Only populated when trend_data exists — empty dicts otherwise.
+    """
+    if not trend_data:
+        return {"stockout_risk": [], "margin_erosion": [], "rising_stars": []}
+
+    stockout_risk  = []
+    margin_erosion = []
+    rising_stars   = []
+
+    # Rank current items by sales to identify top vs non-top
+    sorted_by_sales = sorted(df_rows, key=lambda r: r.get("_sales", 0), reverse=True)
+    top_names = {r[name_key] for r in sorted_by_sales[:5]}
+
+    for rec in df_rows:
+        name = rec.get(name_key, "")
+        if name not in trend_data:
+            continue
+        prev = trend_data[name]
+        curr_sales  = rec.get("_sales",  0)
+        curr_qty    = rec.get("_qty",    0)
+        curr_margin = rec.get("_margin", None)
+        prev_sales  = prev["prev_sales"]
+        prev_qty    = prev["prev_qty"]
+        prev_margin = prev["prev_margin"]
+
+        sales_pct = ((curr_sales - prev_sales) / prev_sales * 100) if prev_sales > 0 else None
+        qty_pct   = ((curr_qty   - prev_qty)   / prev_qty   * 100) if prev_qty   > 0 else None
+
+        # Stockout risk: top-revenue item with qty growing >20% — demand accelerating
+        if name in top_names and qty_pct is not None and qty_pct > 20:
+            stockout_risk.append({
+                "name":          name,
+                "curr_qty":      int(curr_qty),
+                "qty_change":    f"+{qty_pct:.1f}%",
+                "curr_sales":    round(curr_sales, 2),
+                "warning":       "demand accelerating — check stock level and reorder before next period"
+            })
+
+        # Margin erosion: margin dropping >3pp two periods in a row
+        if curr_margin is not None and prev_margin > 0:
+            margin_shift = round(curr_margin - prev_margin, 1)
+            if margin_shift < -3:
+                margin_erosion.append({
+                    "name":         name,
+                    "curr_margin":  round(curr_margin, 2),
+                    "margin_shift": f"{margin_shift}pp",
+                    "warning":      "margin eroding — supplier cost likely increased, renegotiate immediately"
+                })
+
+        # Rising stars: NOT in top 5 revenue but sales growing >25%
+        if name not in top_names and sales_pct is not None and sales_pct > 25:
+            rising_stars.append({
+                "name":         name,
+                "sales_change": f"+{sales_pct:.1f}%",
+                "curr_sales":   round(curr_sales, 2),
+                "curr_margin":  round(curr_margin, 2) if curr_margin is not None else None,
+                "signal":       "gaining momentum — increase shelf space and ensure stock availability"
+            })
+
+    # Sort by severity
+    stockout_risk.sort(key=lambda x: float(x["qty_change"].replace("+","")), reverse=True)
+    margin_erosion.sort(key=lambda x: float(x["margin_shift"]))
+    rising_stars.sort(key=lambda x: float(x["sales_change"].replace("+","")), reverse=True)
+
+    return {
+        "stockout_risk":  stockout_risk[:3],
+        "margin_erosion": margin_erosion[:3],
+        "rising_stars":   rising_stars[:3],
+    }
+
 
 # ══════════════════════════════════════════════════════════════════════════════
 # ── INTELLIGENCE ENGINE ────────────────────────────────────────────────────────
@@ -349,8 +455,10 @@ def _compute_intelligence(df: pd.DataFrame, name_col: str, trend_data: dict) -> 
     avg_margin  = df["_margin"].mean()
 
     top10      = df.nlargest(10, "_sales")[[name_col, "_sales", "_qty", "_margin", "_contrib"]].round(2)
-    bot10_qty  = df[df["_qty"] > 0].nsmallest(10, "_qty")[[name_col, "_qty", "_sales", "_margin"]].round(2)
+    # Bottom 5 by quantity (worst first) — exclude zero-qty items already caught by anomalies
+    bot5_qty   = df[df["_qty"] > 0].nsmallest(5, "_qty")[[name_col, "_qty", "_sales", "_margin"]].round(2)
     low_margin = df[df["_margin"] < min(avg_margin, 15)].nsmallest(5, "_margin")[[name_col, "_margin", "_sales"]].round(2)
+    avg_qty    = round(df[df["_qty"] > 0]["_qty"].mean(), 1)
 
     top10_names = set(top10[name_col].tolist())
     hidden_gems = df[~df[name_col].isin(top10_names)].nlargest(3, "_margin")[[name_col, "_margin", "_sales", "_qty"]].round(2)
@@ -380,6 +488,8 @@ def _compute_intelligence(df: pd.DataFrame, name_col: str, trend_data: dict) -> 
     # ── Trend signals (works for both WoW and MoM) ────────────────────────────
     declining     = []
     margin_shifts = []
+    all_rows = df.to_dict("records")
+
     if trend_data:
         for _, row in df.iterrows():
             name = row[name_col]
@@ -410,11 +520,21 @@ def _compute_intelligence(df: pd.DataFrame, name_col: str, trend_data: dict) -> 
         declining     = declining[:3]
         margin_shifts = margin_shifts[:3]
 
+    # ── Enrich key sections with trend deltas (safe — no-op when no prior data) ─
+    top10_enriched      = _enrich_with_trends(top10.to_dict("records"),      trend_data, name_col)
+    bot5_enriched       = _enrich_with_trends(bot5_qty.to_dict("records"),   trend_data, name_col)
+    low_margin_enriched = _enrich_with_trends(low_margin.to_dict("records"), trend_data, name_col)
+    gems_enriched       = _enrich_with_trends(hidden_gems.to_dict("records"),trend_data, name_col)
+
+    # ── Predictive signals ────────────────────────────────────────────────────
+    predictions = _compute_predictions(all_rows, trend_data, name_col)
+
     return {
-        "top_10_by_revenue":      top10.to_dict("records"),
-        "bottom_10_by_quantity":  bot10_qty.to_dict("records"),
-        "low_margin_items":       low_margin.to_dict("records"),
-        "hidden_margin_gems":     hidden_gems.to_dict("records"),
+        "top_10_by_revenue":      top10_enriched,
+        "bottom_5_by_quantity":   bot5_enriched,
+        "avg_qty_sold":           avg_qty,
+        "low_margin_items":       low_margin_enriched,
+        "hidden_margin_gems":     gems_enriched,
         "high_risk_items":        high_risk.to_dict("records"),
         "mix_risk_items":         mix_risk_items.to_dict("records") if not mix_risk_items.empty else [],
         "concentration_flag":     concentration_flag,
@@ -425,6 +545,7 @@ def _compute_intelligence(df: pd.DataFrame, name_col: str, trend_data: dict) -> 
         "trend_declining":        declining,
         "trend_margin_shifts":    margin_shifts,
         "has_trend_data":         bool(trend_data),
+        "predictions":            predictions,
     }
 
 
@@ -466,58 +587,74 @@ def brand_recommendation(
         f"\n{trend_label} TREND: No prior {period_label} snapshot yet — trend data will appear from next run.\n"
     )
 
+    # Pre-compute deduplication at Python level — LLM cannot repeat these names
+    top2_names = [r["brandName"] for r in intel["top_10_by_revenue"][:2]] if intel["top_10_by_revenue"] else []
+    margin_risk_candidates = [r for r in (intel["low_margin_items"] + intel["high_risk_items"]) if r.get("brandName") not in top2_names]
+    gem_candidates = [r for r in intel["hidden_margin_gems"] if r.get("brandName") not in top2_names and (not margin_risk_candidates or r.get("brandName") != (margin_risk_candidates[0].get("brandName") if margin_risk_candidates else ""))]
+
+    pred = intel["predictions"]
+    pred_section = (
+        f"\nPREDICTIVE SIGNALS (based on {trend_label} velocity):\n"
+        f"STOCKOUT RISK (demand accelerating — reorder urgently):\n{json.dumps(pred['stockout_risk'], indent=2) if pred['stockout_risk'] else 'None detected'}\n"
+        f"MARGIN EROSION (margin declining vs last {period_label}):\n{json.dumps(pred['margin_erosion'], indent=2) if pred['margin_erosion'] else 'None detected'}\n"
+        f"RISING STARS ({trend_label} growth >25%, not yet top revenue):\n{json.dumps(pred['rising_stars'], indent=2) if pred['rising_stars'] else 'None detected'}\n"
+        if intel["has_trend_data"] else
+        f"\nPREDICTIVE SIGNALS: No prior {period_label} snapshot yet — predictions will appear from next run.\n"
+    )
+
     prompt = f"""Store: "{store_name}" | {report_type} | Total Sales: Rs.{total_sales:,.2f} | Avg margin: {intel['avg_margin_pct']}%
 
-USE ONLY BRAND NAMES LISTED BELOW. Do not add any other brand names.
+DEDUPLICATION: Top 2 revenue brands are {", ".join(top2_names)} — these are RESERVED for bullet 1 only. Bullets 2-5 must use different brands.
 
-TOP 10 BRANDS by revenue:
+TOP 10 BRANDS by revenue (includes {trend_label} change where available):
 {json.dumps(intel['top_10_by_revenue'], indent=2)}
 
-BOTTOM 10 BRANDS by quantity sold:
-{json.dumps(intel['bottom_10_by_quantity'], indent=2)}
+BOTTOM 5 BRANDS by quantity (worst first — store avg: {intel['avg_qty_sold']} units):
+{json.dumps(intel['bottom_5_by_quantity'], indent=2)}
 
-LOW MARGIN BRANDS:
-{json.dumps(intel['low_margin_items'], indent=2)}
+LOW MARGIN / HIGH RISK BRANDS (already excludes top 2 revenue brands):
+{json.dumps(margin_risk_candidates[:5], indent=2)}
 
-HIGH MARGIN UNDERUTILISED (not in top 10 revenue — push these):
-{json.dumps(intel['hidden_margin_gems'], indent=2)}
-
-HIGH RISK BRANDS (high revenue share + low margin):
-{json.dumps(intel['high_risk_items'], indent=2)}
+HIGH MARGIN UNDERUTILISED:
+{json.dumps(gem_candidates[:3], indent=2)}
 
 MIX SHIFT RISK:
 {json.dumps(intel['mix_risk_items'], indent=2)}
 
 CONCENTRATION: {conc}
 ANOMALIES: {json.dumps(intel['anomalies']) if intel['anomalies'] else "None"}
-{trend_section}
+{trend_section}{pred_section}
 
 {_BULLET_RULES}
 Write exactly 5 bullets:
 
-1. [STOCK PRIORITY] Top 2 brands by revenue only — name + Rs. revenue + margin % + one action:
-   margin >30% → "reorder immediately and increase shelf space"
-   margin 15-30% → "maintain stock and run a {period_label}ly combo offer"
-   margin <15% → "keep stocked but negotiate cost before next order"
+1. [STOCK PRIORITY] Top 2 brands by revenue — name + Rs. revenue + margin % + {trend_label} sales_change if available + one action:
+   If sales_change shown → include it in the bullet, e.g. "Red Bull (+18% {trend_label})"
+   margin >30% → "reorder immediately and expand shelf space"
+   margin 15-30% → "maintain stock and push supplier for a better rate this {period_label}"
+   margin <15% → "keep stocked but renegotiate supplier cost before next reorder"
 
-2. [MARGIN RISK] Single most urgent brand from LOW MARGIN or HIGH RISK — name + margin % + one action:
-   margin <5% → "raise price by Rs.3-5 or discontinue if volume is low"
-   margin 5-10% → "raise price by Rs.2-3 or renegotiate supplier cost this {period_label}"
-   margin 10-15% → "small cost reduction here will significantly lift profit"
+2. [MARGIN RISK] Most urgent from LOW MARGIN / HIGH RISK list above — name + margin % + margin_shift if shown + one action:
+   margin <0% → "halt reorders — sell through existing stock to recover cash, then delist unless supplier resolves cost"
+   margin 0-5% → "renegotiate supplier cost this {period_label} or discontinue — margin is unsustainable"
+   margin 5-10% → "push supplier for a better rate — 2% cost reduction will meaningfully improve margin"
+   margin 10-15% → "negotiate supplier contract this {period_label} — small cost reduction has meaningful profit impact"
 
-3. [HIDDEN OPPORTUNITY] Single best brand from HIGH MARGIN UNDERUTILISED — name + margin % + one action:
-   "Place at counter or bundle with [#1 revenue brand] this {report_type}"
+3. [HIDDEN OPPORTUNITY] Best from HIGH MARGIN UNDERUTILISED list above — name + margin % + sales_change if shown + one action:
+   "Place at counter or bundle with the top revenue brand this {period_label} to drive volume"
 
-4. [DEAD STOCK] Top 2 worst from BOTTOM QUANTITY — name + quantity + one action:
-   qty <=10 → "do not reorder — shelf space has better use"
-   qty 11-30 → "run a 2-for-1 offer to clear this {report_type}"
-   qty 31-60 → "move to counter for impulse purchase visibility"
+4. [SLOW MOVERS] Top 2 from BOTTOM QUANTITY — name + quantity + how far below store avg + one action:
+   qty <=5 → "remove from shelf and bundle as freebie with top seller to clear stock"
+   qty 6-15 → "move to checkout counter with a handwritten discount sticker for impulse purchase"
+   qty 16-40 → "place next to top revenue brand with a combo deal tag this {period_label}"
+   qty 41-80 → "run a buy-2-get-1 promotion this {period_label}"
 
-5. [TREND / RISK] Use {trend_label} data if available, otherwise use MIX SHIFT or CONCENTRATION:
-   If {trend_label} declining brands exist → name the worst + sales_change % + "investigate cause and consider reducing reorder quantity"
-   If {trend_label} margin shifts exist → name the brand + margin shift direction + "review supplier cost or pricing immediately"
-   If no {trend_label} data → use concentration or mix shift — cite exact figures and one action"""
-
+5. [PREDICTIVE / TREND] Use signals in this priority order:
+   If STOCKOUT RISK exists → name the brand + qty_change % + "reorder urgently — demand is accelerating and stock may run out before next delivery"
+   Else if RISING STAR exists → name the brand + sales_change % + "increase shelf space and reorder — gaining momentum"
+   Else if MARGIN EROSION exists → name the brand + margin_shift + "call supplier immediately — margin declining two periods in a row"
+   Else if {trend_label} declining brands exist → name worst + sales_change % + "check supplier delivery and reduce reorder until cause is clear"
+   Else → name the highest mix-shift-risk brand + its contrib% and margin% + "takes shelf space but delivers below-average margin — push supplier for better cost" """
     text, fallback = _get_recommendation(prompt)
     return _wrap_html(text, fallback)
 
@@ -556,58 +693,73 @@ def category_recommendation(
         f"\n{trend_label} TREND: No prior {period_label} snapshot yet — trend data will appear from next run.\n"
     )
 
+    # Pre-compute deduplication at Python level
+    top2_cat_names = [r["categoryName"] for r in intel["top_10_by_revenue"][:2]] if intel["top_10_by_revenue"] else []
+    cat_margin_candidates = [r for r in (intel["low_margin_items"] + intel["high_risk_items"]) if r.get("categoryName") not in top2_cat_names]
+    cat_gem_candidates = [r for r in intel["hidden_margin_gems"] if r.get("categoryName") not in top2_cat_names and (not cat_margin_candidates or r.get("categoryName") != (cat_margin_candidates[0].get("categoryName") if cat_margin_candidates else ""))]
+
+    pred = intel["predictions"]
+    pred_section = (
+        f"\nPREDICTIVE SIGNALS (based on {trend_label} velocity):\n"
+        f"STOCKOUT RISK:\n{json.dumps(pred['stockout_risk'], indent=2) if pred['stockout_risk'] else 'None detected'}\n"
+        f"MARGIN EROSION:\n{json.dumps(pred['margin_erosion'], indent=2) if pred['margin_erosion'] else 'None detected'}\n"
+        f"RISING STARS:\n{json.dumps(pred['rising_stars'], indent=2) if pred['rising_stars'] else 'None detected'}\n"
+        if intel["has_trend_data"] else
+        f"\nPREDICTIVE SIGNALS: No prior {period_label} snapshot yet — predictions will appear from next run.\n"
+    )
+
     prompt = f"""Store: "{store_name}" | {report_type} | Total Sales: Rs.{total_sales:,.2f} | Avg margin: {intel['avg_margin_pct']}%
 
-USE ONLY CATEGORY NAMES LISTED BELOW. Do not add any other category names.
+DEDUPLICATION: Top 2 revenue categories are {", ".join(top2_cat_names)} — RESERVED for bullet 1 only. Bullets 2-5 must use different categories.
 
-TOP 10 CATEGORIES by revenue:
+TOP 10 CATEGORIES by revenue (includes {trend_label} change where available):
 {json.dumps(intel['top_10_by_revenue'], indent=2)}
 
-BOTTOM 10 CATEGORIES by quantity sold:
-{json.dumps(intel['bottom_10_by_quantity'], indent=2)}
+BOTTOM 5 CATEGORIES by quantity (worst first — store avg: {intel['avg_qty_sold']} units):
+{json.dumps(intel['bottom_5_by_quantity'], indent=2)}
 
-LOW MARGIN CATEGORIES:
-{json.dumps(intel['low_margin_items'], indent=2)}
+LOW MARGIN / HIGH RISK CATEGORIES (already excludes top 2 revenue categories):
+{json.dumps(cat_margin_candidates[:5], indent=2)}
 
 HIGH MARGIN UNDERUTILISED:
-{json.dumps(intel['hidden_margin_gems'], indent=2)}
-
-HIGH RISK CATEGORIES:
-{json.dumps(intel['high_risk_items'], indent=2)}
+{json.dumps(cat_gem_candidates[:3], indent=2)}
 
 MIX SHIFT RISK:
 {json.dumps(intel['mix_risk_items'], indent=2)}
 
 CONCENTRATION: {conc}
 ANOMALIES: {json.dumps(intel['anomalies']) if intel['anomalies'] else "None"}
-{trend_section}
+{trend_section}{pred_section}
 
 {_BULLET_RULES}
 Write exactly 5 bullets:
 
-1. [REVENUE DRIVER] Top 2 categories by revenue — name + Rs. revenue + contrib% + one action:
-   contrib >20% → "protect this category — ensure full range is stocked"
-   contrib 10-20% → "grow this category — add SKU variety or a promotional bundle"
-   contrib <10% → "review range — reduce low-margin SKUs in this category"
+1. [REVENUE DRIVER] Top 2 categories by revenue — name + Rs. revenue + contrib% + {trend_label} sales_change if available + one action:
+   contrib >20% → "ensure full range is always in stock and protect supplier terms"
+   contrib 10-20% → "add 2-3 high-margin SKUs to grow contribution this {period_label}"
+   contrib <10% → "cut lowest-margin SKUs and focus on the top 3 sellers in this category"
 
-2. [MARGIN RISK] Single most urgent from LOW MARGIN or HIGH RISK — name + margin % + one action:
-   margin <5% → "audit all SKUs — remove loss-makers immediately"
-   margin 5-10% → "raise prices by Rs.2-5 or negotiate supplier terms this {period_label}"
-   margin 10-15% → "review top 3 SKUs for cost reduction opportunity"
+2. [MARGIN RISK] Most urgent from LOW MARGIN / HIGH RISK list above — name + margin % + margin_shift if shown + one action:
+   margin <0% → "sell through existing stock immediately — do not reorder until supplier cost is renegotiated"
+   margin 0-5% → "renegotiate supplier terms this {period_label} or reduce range — margin is unsustainable"
+   margin 5-10% → "push supplier for a better cost — 2% improvement on rate lifts this category's margin meaningfully"
+   margin 10-15% → "negotiate supplier contract this {period_label} — even a small cost reduction has meaningful impact"
 
-3. [HIDDEN OPPORTUNITY] Single best from HIGH MARGIN UNDERUTILISED — name + margin % + one action:
-   "Increase shelf space or bundle with top revenue category to drive volume this {report_type}"
+3. [HIDDEN OPPORTUNITY] Best from HIGH MARGIN UNDERUTILISED list above — name + margin % + sales_change if shown + one action:
+   "Move to higher-traffic shelf or bundle with the top revenue category to drive volume this {period_label}"
 
-4. [LOW DEMAND] Top 2 from BOTTOM QUANTITY — name + quantity + one action:
-   qty <=10 → "review whether this category earns its shelf space"
-   qty 11-50 → "run a category promotion or move to higher-traffic position"
-   qty 51-100 → "add a combo deal with a high-revenue category to lift volume"
+4. [SLOW MOVERS] Top 2 from BOTTOM QUANTITY — name + quantity + how far below store avg + one action:
+   qty <=5 → "delist lowest-margin SKUs immediately — too few units to justify shelf space"
+   qty 6-15 → "cut to top 2 SKUs and move to checkout counter for impulse purchase"
+   qty 16-40 → "bundle with top revenue category and add combo price tag this {period_label}"
+   qty 41-80 → "run a category promotion or relocate to higher-footfall position this {period_label}"
 
-5. [TREND / RISK] Use {trend_label} data if available, otherwise use MIX SHIFT or CONCENTRATION:
-   If {trend_label} declining categories exist → name the worst + sales_change % + "investigate cause and consider reducing SKU range"
-   If {trend_label} margin shifts exist → name the category + shift direction + "review pricing or supplier terms immediately"
-   If no {trend_label} data → use concentration or mix shift — cite exact figures and one action"""
-
+5. [PREDICTIVE / TREND] Use signals in this priority order:
+   If STOCKOUT RISK exists → name the category + qty_change % + "reorder urgently — demand accelerating"
+   Else if RISING STAR exists → name the category + sales_change % + "increase range and stock — gaining momentum"
+   Else if MARGIN EROSION exists → name the category + margin_shift + "call supplier — margin declining two periods"
+   Else if {trend_label} declining categories exist → name worst + sales_change % + "check if key SKU out of stock or delivery failed"
+   Else → name the highest mix-shift-risk category + contrib% and margin% + "significant share but below-average margin — push supplier for better cost" """
     text, fallback = _get_recommendation(prompt)
     return _wrap_html(text, fallback)
 
@@ -646,59 +798,74 @@ def product_recommendation(
         f"\n{trend_label} TREND: No prior {period_label} snapshot yet — trend data will appear from next run.\n"
     )
 
+    # Pre-compute deduplication at Python level
+    top2_prod_names = [r["productName"] for r in intel["top_10_by_revenue"][:2]] if intel["top_10_by_revenue"] else []
+    prod_margin_candidates = [r for r in (intel["low_margin_items"] + intel["high_risk_items"]) if r.get("productName") not in top2_prod_names]
+    prod_gem_candidates = [r for r in intel["hidden_margin_gems"] if r.get("productName") not in top2_prod_names and (not prod_margin_candidates or r.get("productName") != (prod_margin_candidates[0].get("productName") if prod_margin_candidates else ""))]
+
+    pred = intel["predictions"]
+    pred_section = (
+        f"\nPREDICTIVE SIGNALS (based on {trend_label} velocity):\n"
+        f"STOCKOUT RISK:\n{json.dumps(pred['stockout_risk'], indent=2) if pred['stockout_risk'] else 'None detected'}\n"
+        f"MARGIN EROSION:\n{json.dumps(pred['margin_erosion'], indent=2) if pred['margin_erosion'] else 'None detected'}\n"
+        f"RISING STARS:\n{json.dumps(pred['rising_stars'], indent=2) if pred['rising_stars'] else 'None detected'}\n"
+        if intel["has_trend_data"] else
+        f"\nPREDICTIVE SIGNALS: No prior {period_label} snapshot yet — predictions will appear from next run.\n"
+    )
+
     prompt = f"""Store: "{store_name}" | {report_type} | Total Sales: Rs.{total_sales:,.2f} | Avg margin: {intel['avg_margin_pct']}%
 
-USE ONLY PRODUCT NAMES LISTED BELOW. Do not add any other product names.
+DEDUPLICATION: Top 2 revenue products are {", ".join(top2_prod_names)} — RESERVED for bullet 1 only. Bullets 2-5 must use different products.
 
-TOP 10 PRODUCTS by revenue:
+TOP 10 PRODUCTS by revenue (includes {trend_label} change where available):
 {json.dumps(intel['top_10_by_revenue'], indent=2)}
 
-BOTTOM 10 PRODUCTS by quantity sold:
-{json.dumps(intel['bottom_10_by_quantity'], indent=2)}
+BOTTOM 5 PRODUCTS by quantity (worst first — store avg: {intel['avg_qty_sold']} units):
+{json.dumps(intel['bottom_5_by_quantity'], indent=2)}
 
-LOW MARGIN PRODUCTS:
-{json.dumps(intel['low_margin_items'], indent=2)}
+LOW MARGIN / HIGH RISK PRODUCTS (already excludes top 2 revenue products):
+{json.dumps(prod_margin_candidates[:5], indent=2)}
 
 HIGH MARGIN UNDERUTILISED:
-{json.dumps(intel['hidden_margin_gems'], indent=2)}
-
-HIGH RISK PRODUCTS:
-{json.dumps(intel['high_risk_items'], indent=2)}
+{json.dumps(prod_gem_candidates[:3], indent=2)}
 
 MIX SHIFT RISK:
 {json.dumps(intel['mix_risk_items'], indent=2)}
 
 CONCENTRATION: {conc}
 ANOMALIES: {json.dumps(intel['anomalies']) if intel['anomalies'] else "None"}
-{trend_section}
+{trend_section}{pred_section}
 
 {_BULLET_RULES}
 Write exactly 5 bullets:
 
-1. [STOCK PRIORITY] Top 2 products by revenue — name + Rs. revenue + margin % + one action:
-   margin >30% → "reorder immediately and increase shelf space"
-   margin 15-30% → "maintain stock and consider a {period_label}ly combo offer"
-   margin <15% → "keep stocked but raise price by Rs.2-3 before next reorder"
+1. [STOCK PRIORITY] Top 2 products by revenue — name + Rs. revenue + margin % + {trend_label} sales_change if available + one action:
+   If sales_change shown → include it, e.g. "Red Bull (+18% {trend_label})"
+   margin >30% → "reorder immediately and give it more shelf space"
+   margin 15-30% → "maintain stock and bundle with a complementary product this {period_label}"
+   margin <15% → "keep stocked but renegotiate supplier cost at next reorder"
 
-2. [MARGIN RISK] Single most urgent from LOW MARGIN or HIGH RISK — name + margin % + one action:
-   margin <0% → "STOP selling at current price — raise price or remove from shelf immediately"
-   margin 0-5% → "raise price by Rs.3-5 or remove if supplier cost cannot be reduced"
-   margin 5-10% → "negotiate supplier cost — 2% reduction improves margin meaningfully"
-   margin 10-15% → "small price adjustment will significantly lift profit"
+2. [MARGIN RISK] Most urgent from LOW MARGIN / HIGH RISK list above — name + margin % + margin_shift if shown + one action:
+   margin <0% → "stop reordering — sell through existing stock to recover cash, then delist unless supplier fixes cost"
+   margin 0-5% → "renegotiate supplier cost this {period_label} or remove from range — margin is unsustainable"
+   margin 5-10% → "push supplier for a better rate — 2% cost reduction improves margin meaningfully"
+   margin 10-15% → "negotiate supplier contract this {period_label} — small cost reduction has significant profit impact"
 
-3. [HIDDEN OPPORTUNITY] Single best from HIGH MARGIN UNDERUTILISED — name + margin % + one action:
-   "Move to eye level or counter, or bundle with [#1 revenue product] for an upsell offer this {report_type}"
+3. [HIDDEN OPPORTUNITY] Best from HIGH MARGIN UNDERUTILISED list above — name + margin % + sales_change if shown + one action:
+   "Move to eye level or checkout counter, or bundle with top revenue product for an upsell this {period_label}"
 
-4. [DEAD STOCK] Top 2 from BOTTOM QUANTITY — name + quantity + one action:
-   qty ==1 → "single unit sold — do not reorder"
-   qty <=5 → "consider removing from range — shelf space has better use"
-   qty 6-20 → "run a 2-for-1 or discount offer this {report_type}"
-   qty 21-50 → "move to checkout counter for impulse purchase visibility"
+4. [SLOW MOVERS] Top 2 from BOTTOM QUANTITY — name + quantity + how far below store avg + one action:
+   qty ==1 → "single unit — do not reorder, bundle as freebie with top seller to clear"
+   qty 2-5 → "do not reorder — move to checkout with handwritten discount sticker to sell through"
+   qty 6-15 → "move to eye level with price-off label and bundle with complementary top seller this {period_label}"
+   qty 16-40 → "run a buy-2-get-1 deal or place at checkout for impulse visibility this {period_label}"
+   qty 41-80 → "place next to top revenue product with a combo price tag to accelerate movement"
 
-5. [TREND / RISK] Use {trend_label} data if available, otherwise use MIX SHIFT or CONCENTRATION:
-   If {trend_label} declining products exist → name the worst + sales_change % + "investigate cause and consider reducing reorder quantity"
-   If {trend_label} margin shifts exist → name the product + shift direction + "review supplier cost or pricing immediately"
-   If no {trend_label} data → use concentration or mix shift — cite exact figures and one action"""
-
+5. [PREDICTIVE / TREND] Use signals in this priority order:
+   If STOCKOUT RISK exists → name the product + qty_change % + "reorder urgently — demand accelerating, stock may run out before next delivery"
+   Else if RISING STAR exists → name the product + sales_change % + "increase shelf space and reorder — gaining momentum"
+   Else if MARGIN EROSION exists → name the product + margin_shift + "call supplier immediately — margin declining two periods in a row"
+   Else if {trend_label} declining products exist → name worst + sales_change % + "check if out of stock or competitor undercutting — reduce reorder until cause is clear"
+   Else → name the highest mix-shift-risk product + contrib% and margin% + "occupies shelf share but delivers below-average margin — push supplier for better cost" """
     text, fallback = _get_recommendation(prompt)
     return _wrap_html(text, fallback)
