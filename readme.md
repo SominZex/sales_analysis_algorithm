@@ -6,43 +6,39 @@ LLM-grounded operational recommendations delivered via automated reports.
 
 ## System Architecture
 
-```mermaid
-flowchart LR
+## Architecture Diagram
 
-%% Data Source
+```mermaid
+flowchart TD
+
 A[Retail Sales API]
 
-%% Data Engineering Layer
-subgraph Data_Engineering
+subgraph Data Engineering
 B[Apache Airflow Scheduler]
-C[ETL Pipeline<br>Extraction & Transformation]
-D[PostgreSQL Analytics Store<br>Historical Snapshots]
+C[ETL Pipeline]
+D[PostgreSQL Analytics Store]
 end
 
-%% Intelligence Layer
-subgraph Intelligence_Engine
-E[KPI Computation Engine]
-F[Trend Detection<br>WoW & MoM Analysis]
-G[Risk Scoring<br>Stockout / Margin Erosion]
-H[Structured Insight Payload]
+subgraph Intelligence Engine
+E[KPI Computation]
+F[Trend Detection]
+G[Risk Scoring]
+H[Structured Insights]
 end
 
-%% LLM Layer
-subgraph AI_Recommendation_Layer
+subgraph LLM Layer
 I[Groq LLaMA 3.1]
-J[Ollama Local Fallback]
-K[Operational Action Recommendations]
+J[Ollama Fallback]
+K[Operational Recommendations]
 end
 
-%% Reporting Layer
 subgraph Reporting
-L[Report Generator<br>PDF + Excel]
+L[Report Generator]
 M[Daily Report]
 N[Weekly Report]
 O[Monthly Report]
 end
 
-%% Distribution Layer
 subgraph Distribution
 P[Email Delivery]
 Q[WhatsApp Automation]
