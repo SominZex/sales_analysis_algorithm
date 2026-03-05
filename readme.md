@@ -1,6 +1,26 @@
 # LLM Integrated Sales intelligence system
-# Flowchart
-<img width="1920" height="1080" alt="flowchrt" src="https://github.com/user-attachments/assets/454e4bf6-a3bc-4a28-b916-6d92e24f8a59" />
+## System Architecture
+
+```mermaid
+flowchart TD
+
+A[Retail Sales API]
+B[Apache Airflow ETL DAG<br>Extraction & Transformation]
+C[PostgreSQL Analytics Store<br>Historical Snapshots]
+D[Intelligence Engine<br>KPI Computation & Risk Detection]
+E[Structured Insight Layer]
+F[LLM Recommendation Layer<br>Groq LLaMA 3.1<br>Ollama Fallback]
+G[Report Generation Engine<br>PDF + Excel]
+H[Distribution Layer<br>Email + WhatsApp]
+
+A --> B
+B --> C
+C --> D
+D --> E
+E --> F
+F --> G
+G --> H
+```
 
 
 ## Overview
