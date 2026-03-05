@@ -5,24 +5,73 @@ computes deterministic business intelligence signals, and generates
 LLM-grounded operational recommendations delivered via automated reports.
 
 ## System Architecture
+
 ```mermaid
-flowchart TD
-A[Airflow Scheduler] --> B[ETL Pipeline]
-B --> C[PostgreSQL Storage]
-C --> D[Intelligence Engine]
-D --> E[Structured Insights]
-E --> F[LLM Recommendation Engine]
-F --> G[Report Generation]
-G --> H[WhatsApp Delivery]
-G --> I[Email Delivery]
+flowchart LR
 
-H --> J{Weekly Trigger}
-J -->|Yes| K[Weekly Reports]
-J -->|No| L[Continue]
+%% Data Source
+A[Retail Sales API]
 
-H --> M{Monthly Trigger}
-M -->|Yes| N[Monthly Reports]
-M -->|No| O[Continue]
+%% Data Engineering Layer
+subgraph Data_Engineering
+B[Apache Airflow Scheduler]
+C[ETL Pipeline<br>Extraction & Transformation]
+D[PostgreSQL Analytics Store<br>Historical Snapshots]
+end
+
+%% Intelligence Layer
+subgraph Intelligence_Engine
+E[KPI Computation Engine]
+F[Trend Detection<br>WoW & MoM Analysis]
+G[Risk Scoring<br>Stockout / Margin Erosion]
+H[Structured Insight Payload]
+end
+
+%% LLM Layer
+subgraph AI_Recommendation_Layer
+I[Groq LLaMA 3.1]
+J[Ollama Local Fallback]
+K[Operational Action Recommendations]
+end
+
+%% Reporting Layer
+subgraph Reporting
+L[Report Generator<br>PDF + Excel]
+M[Daily Report]
+N[Weekly Report]
+O[Monthly Report]
+end
+
+%% Distribution Layer
+subgraph Distribution
+P[Email Delivery]
+Q[WhatsApp Automation]
+end
+
+A --> B
+B --> C
+C --> D
+
+D --> E
+E --> F
+F --> G
+G --> H
+
+H --> I
+H --> J
+I --> K
+J --> K
+
+K --> L
+
+L --> M
+L --> N
+L --> O
+
+M --> P
+M --> Q
+N --> P
+O --> P
 ```
 
 
