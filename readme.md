@@ -1,17 +1,27 @@
 # LLM Integrated Sales intelligence system
 ## System Architecture
-
 ```mermaid
 flowchart TD
 
+subgraph Data_Engineering
 A[Retail Sales API]
-B[Apache Airflow ETL DAG<br>Extraction & Transformation]
-C[PostgreSQL Analytics Store<br>Historical Snapshots]
-D[Intelligence Engine<br>KPI Computation & Risk Detection]
+B[Apache Airflow ETL]
+C[PostgreSQL Analytics Store]
+end
+
+subgraph Intelligence
+D[Intelligence Engine<br>KPI + Risk Detection]
 E[Structured Insight Layer]
-F[LLM Recommendation Layer<br>Groq LLaMA 3.1<br>Ollama Fallback]
-G[Report Generation Engine<br>PDF + Excel]
-H[Distribution Layer<br>Email + WhatsApp]
+end
+
+subgraph AI_Layer
+F[LLM Recommendation Engine<br>Groq LLaMA3.1<br>Ollama Fallback]
+end
+
+subgraph Reporting
+G[Report Generation<br>PDF + Excel]
+H[Distribution<br>Email + WhatsApp]
+end
 
 A --> B
 B --> C
