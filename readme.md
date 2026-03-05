@@ -1,39 +1,47 @@
-# LLM Integrated Sales intelligence system
+# LLM-Integrated Sales Intelligence Automation Engine
+
+A production-grade automated analytics platform that ingests retail sales data,
+computes deterministic business intelligence signals, and generates
+LLM-grounded operational recommendations delivered via automated reports.
+
 ## System Architecture
 ```mermaid
 flowchart TD
+A[Airflow Scheduler] --> B[ETL Pipeline]
+B --> C[PostgreSQL Storage]
+C --> D[Intelligence Engine]
+D --> E[Structured Insights]
+E --> F[LLM Recommendation Engine]
+F --> G[Report Generation]
+G --> H[WhatsApp Delivery]
+G --> I[Email Delivery]
 
-subgraph Data_Engineering
-A[Retail Sales API]
-B[Apache Airflow ETL]
-C[PostgreSQL Analytics Store]
-end
+H --> J{Weekly Trigger}
+J -->|Yes| K[Weekly Reports]
+J -->|No| L[Continue]
 
-subgraph Intelligence
-D[Intelligence Engine<br>KPI + Risk Detection]
-E[Structured Insight Layer]
-end
-
-subgraph AI_Layer
-F[LLM Recommendation Engine<br>Groq LLaMA3.1<br>Ollama Fallback]
-end
-
-subgraph Reporting
-G[Report Generation<br>PDF + Excel]
-H[Distribution<br>Email + WhatsApp]
-end
-
-A --> B
-B --> C
-C --> D
-D --> E
-E --> F
-F --> G
-G --> H
+H --> M{Monthly Trigger}
+M -->|Yes| N[Monthly Reports]
+M -->|No| O[Continue]
 ```
 
 
 ## Overview
+
+### Tech stack
+
+| Component | Technology |
+|-----------|------------|
+| Orchestration | Apache Airflow |
+| ETL | Python, Pandas |
+| Database | PostgreSQL |
+| LLM | Groq (LLaMA 3.1), Ollama |
+| Visualization | Plotly |
+| Reporting | wkhtmltopdf |
+| Automation | Playwright |
+| Infrastructure | Docker, Azure VM |
+| CI | GitHub Actions |
+
 ### This project is a fully automated sales reporting engine designed to:
 - Generate Daily, Weekly, and Monthly business performance reports
 - Process structured ETL workflows
