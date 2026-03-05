@@ -6,8 +6,6 @@ LLM-grounded operational recommendations delivered via automated reports.
 
 ## System Architecture
 
-## Architecture Diagram
-
 ```mermaid
 flowchart TD
 
@@ -73,20 +71,6 @@ O --> P
 
 ## Overview
 
-### Tech stack
-
-| Component | Technology |
-|-----------|------------|
-| Orchestration | Apache Airflow |
-| ETL | Python, Pandas |
-| Database | PostgreSQL |
-| LLM | Groq (LLaMA 3.1), Ollama |
-| Visualization | Plotly |
-| Reporting | wkhtmltopdf |
-| Automation | Playwright |
-| Infrastructure | Docker, Azure VM |
-| CI | GitHub Actions |
-
 ### This project is a fully automated sales reporting engine designed to:
 - Generate Daily, Weekly, and Monthly business performance reports
 - Process structured ETL workflows
@@ -125,9 +109,9 @@ O --> P
 | Layer | Technology | Responsibility |
 |-------|------------|----------------|
 | Orchestration | Apache Airflow (Dockerized) | ETL, Analysis, Reporting, Notifications |
-| Intelligence Engine | Python (Pandas + custom logic) | KPI computation, trend detection, risk scoring |
+| Intelligence Engine | Python (Pandas + custom logic), APIs | KPI computation, trend detection, risk scoring |
 | Snapshot Store | PostgreSQL | Weekly & Monthly historical memory |
-| LLM Layer | Groq (LLaMA 3.1) + Ollama | Deterministic recommendation rendering |
+| LLM Layer | Groq (LLaMA 3.1) + Ollama | Intelligent recommendation rendering |
 
 
 #### Benefits:
@@ -142,7 +126,7 @@ O --> P
 ### Data Engineering Layer (Apache Airflow)
 #### The ETL layer is orchestrated using Apache Airflow, deployed via Docker.
 ### Responsibility
-- Sales data is fetched via API calls from the mainframe database
+- Sales data is fetched via API calls from the upstream retail system.
 - Data is loaded into a sandbox / analytics database
 - Orchestrates data extraction and transformation tasks
 - Manages dependencies between ETL jobs
@@ -204,7 +188,6 @@ flowchart TD
 #### Weekly Report
 - Aggregates prior week performance
 - Designed for operational and management stakeholders
-- Aggregates prior week performance
 - WoW revenue & quantity comparison
 - Margin shift detection
 - Risk scoring and anomaly detection
@@ -313,11 +296,11 @@ http://localhost:8080
 - Minimal human operational dependency
 
 ## Final Note
-#### This system is not a dashboard.
-#### It is a production-grade, hybrid-orchestrated Sales Intelligence Automation Engine engineered for: 
-- Reliability
-- Determinism
-- Operational scalability
-- Controlled execution boundaries
-- Continuous automated insight delivery
+### This project is not a traditional analytics dashboard.
+### It is a production-grade automated sales intelligence engine designed for:
+
+- Reliable analytics computation
+- Deterministic insight generation
+- Automated report delivery
+- Minimal operational overhead
 
