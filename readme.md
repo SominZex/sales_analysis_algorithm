@@ -97,9 +97,10 @@ R --> U
 - Generate LLM-grounded action recommendations
 - Automatically distribute reports via Email and WhatsApp
 - Operate without manual intervention after deployment
+- Provide real-time observability into system health
 
 ### The system follows a hybrid orchestration architecture:
-- Apache Airflow orchestrates ETL, reporting, and notifications
+- Apache Airflow orchestrates everything
 - A deterministic Intelligence Engine computes KPIs and risk signals
 - A constrained LLM layer converts structured analytics into prioritized store-level actions
 
