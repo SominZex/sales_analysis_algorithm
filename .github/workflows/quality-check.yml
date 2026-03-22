@@ -51,7 +51,7 @@ jobs:
             --cov-config=.coveragerc \
             --cov-report=term-missing \
             --cov-report=xml \
-            --cov-fail-under=35
+            --cov-fail-under=40
 
       - name: Upload coverage report
         if: always()
