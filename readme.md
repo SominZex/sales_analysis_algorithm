@@ -4,7 +4,7 @@ A production-grade automated analytics platform that ingests retail sales data,
 computes deterministic business intelligence signals, and generates
 LLM-grounded operational recommendations delivered via automated reports.
 
-## System Architecture
+# System Architecture
 
 ```mermaid
 flowchart TD
@@ -42,6 +42,13 @@ P[Email Delivery]
 Q[WhatsApp Automation]
 end
 
+subgraph Observability Layer
+R[Prometheus]
+S[Pushgateway]
+T[Node Exporter]
+U[Grafana Dashboards]
+end
+
 A --> B
 B --> C
 C --> D
@@ -66,8 +73,18 @@ M --> P
 M --> Q
 N --> P
 O --> P
-```
 
+%% Observability flows
+B --> S
+C --> S
+E --> S
+L --> S
+P --> S
+Q --> S
+
+S --> R
+T --> R
+R --> U ```
 
 ## Overview
 
@@ -106,12 +123,16 @@ O --> P
 ## System Architecture
 #### The system follows a layered orchestration strategy:
 
-| Layer | Technology | Responsibility |
-|-------|------------|----------------|
-| Orchestration | Apache Airflow (Dockerized) | ETL, Analysis, Reporting, Notifications |
-| Intelligence Engine | Python (Pandas + custom logic), APIs | KPI computation, trend detection, risk scoring |
-| Snapshot Store | PostgreSQL | Weekly & Monthly historical memory |
-| LLM Layer | Groq (LLaMA 3.1) + Ollama | Intelligent recommendation rendering |
+| Layer               | Technology              | Responsibility            |
+| ------------------- | ----------------------- | ------------------------- |
+| Orchestration       | Apache Airflow (Docker) | Scheduling, DAG execution |
+| Data Layer          | PostgreSQL              | Analytics storage         |
+| Intelligence Engine | Python (Pandas + logic) | KPI, trends, risk scoring |
+| LLM Layer           | Groq + Ollama           | Recommendation generation |
+| Reporting           | Python                  | PDF/Excel generation      |
+| Distribution        | SMTP + WhatsApp APIs    | Delivery                  |
+| Observability       | Prometheus + Grafana    | Monitoring & metrics      |
+
 
 
 #### Benefits:
@@ -281,6 +302,15 @@ http://localhost:8080
 - ETL failures isolated from reporting layer
 - Reporting failures do not corrupt data layer
 - Layered orchestration prevents cascading impact
+
+#### Observability & Monitoring
+
+| Component     | Role                        |
+| ------------- | --------------------------- |
+| Prometheus    | Time-series metrics storage |
+| Pushgateway   | Batch job metrics ingestion |
+| Node Exporter | Infrastructure metrics      |
+| Grafana       | Visualization dashboards    |
 
 
 ## CI/Automation

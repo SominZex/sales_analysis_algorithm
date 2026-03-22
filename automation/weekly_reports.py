@@ -11,12 +11,22 @@ from llm_recommender import save_weekly_snapshot
 from sqlalchemy.pool import NullPool
 from dotenv import load_dotenv
 
-# ── NEW: import LLM recommender ───────────────────────────────────────────────
 from llm_recommender import (
     brand_recommendation,
     category_recommendation,
     product_recommendation,
+    # ── Stock insight functions (appended to each AI recommendation section) ──
+    brand_stock_insight,
+    category_stock_insight,
+    product_stock_insight,
+    # ── RTV insight function ──────────────────────────────────────────────────
+    rtv_insight,
 )
+
+# Directory where stock.py saves per-store CSVs (relative or absolute path)
+STOCK_DIR           = os.getenv("STOCK_DIR", "store_stocks")
+LOW_STOCK_THRESHOLD = float(os.getenv("LOW_STOCK_THRESHOLD", "5"))
+RTV_DIR             = os.getenv("RTV_DIR", "store_rtv")
 
 load_dotenv()
 
@@ -87,6 +97,133 @@ def get_unique_stores():
     query = 'SELECT DISTINCT "storeName" FROM "billing_data" ORDER BY "storeName";'
     df = safe_read_sql(query)
     return df["storeName"].dropna().tolist()
+
+
+# ── Short display names for all table columns ────────────────────────────────
+COLUMN_LABELS = {
+    "brandName":    "Brand",
+    "categoryName": "Category",
+    "productName":  "Product",
+    "total_sales":  "Sales (₹)",
+    "quantity_sold":"Qty Sold",
+    "current_stock":"Stock",
+    "contrib_percent": "Contrib%",
+    "profit_margin":   "Margin%",
+}
+
+
+def load_stock_lookups(store_name: str):
+    """
+    Load the store's stock CSV once and return three dicts for O(1) lookup:
+        brand_stock    : {brandName    -> sum(quantity)}
+        category_stock : {categoryName -> sum(quantity)}
+        product_stock  : {productName  -> quantity}
+
+    Returns three empty dicts if the CSV is missing (non-fatal).
+    All quantities are kept as raw numbers (can be negative = no GRN).
+    """
+    safe_name = store_name.replace("/", "_")
+    candidates = [
+        os.path.join(STOCK_DIR, f"{safe_name}.csv"),
+        os.path.join(STOCK_DIR, f"{store_name}.csv"),
+    ]
+    for path in candidates:
+        if os.path.exists(path):
+            try:
+                df = pd.read_csv(path)
+                df["quantity"] = pd.to_numeric(df["quantity"], errors="coerce").fillna(0)
+
+                brand_stock = (
+                    df.groupby("brand")["quantity"].sum().to_dict()
+                    if "brand" in df.columns else {}
+                )
+                category_stock = (
+                    df.groupby("categoryName")["quantity"].sum().to_dict()
+                    if "categoryName" in df.columns else {}
+                )
+                # product: use the raw row quantity (one row per SKU in stock CSV)
+                product_stock = (
+                    df.set_index("productName")["quantity"].to_dict()
+                    if "productName" in df.columns else {}
+                )
+                print(f"  📦 Stock CSV loaded for {store_name} "
+                      f"({len(df)} SKUs, {len(brand_stock)} brands, "
+                      f"{len(category_stock)} categories)")
+                return brand_stock, category_stock, product_stock
+            except Exception as e:
+                print(f"  ⚠️  Stock CSV read error for {store_name}: {e}")
+                return {}, {}, {}
+    print(f"  ℹ️  No stock CSV for {store_name} — 'Stock' column will show N/A")
+    return {}, {}, {}
+
+
+def inject_stock_column(df: pd.DataFrame, name_col: str, stock_lookup: dict) -> pd.DataFrame:
+    """
+    Insert a 'current_stock' column right after 'quantity_sold', then
+    rename all columns to short display labels.
+    Values not found in the lookup are shown as 'N/A'.
+    """
+    if df.empty:
+        return df
+    df = df.copy()
+
+    # Map stock values; keep numeric so we can colour-code negatives later
+    df["current_stock"] = df[name_col].map(stock_lookup)
+
+    # Reorder: insert current_stock right after quantity_sold
+    cols = list(df.columns)
+    cols.remove("current_stock")
+    if "quantity_sold" in cols:
+        pos = cols.index("quantity_sold") + 1
+        cols.insert(pos, "current_stock")
+    df = df[cols]
+
+    return df
+
+
+def df_to_html_with_stock(df: pd.DataFrame) -> str:
+    """
+    Render DataFrame to HTML with:
+      - Short column headers (via COLUMN_LABELS)
+      - Negative 'current_stock' cells highlighted red
+      - N/A for missing stock values
+    """
+    if df.empty:
+        return ""
+
+    df = df.copy()
+
+    # Build header row with short labels
+    headers = "".join(
+        f"<th>{COLUMN_LABELS.get(c, c)}</th>" for c in df.columns
+    )
+
+    rows_html = []
+    for _, row in df.iterrows():
+        cells = []
+        for col in df.columns:
+            val = row[col]
+            if col == "current_stock":
+                if pd.isna(val):
+                    cells.append("<td>N/A</td>")
+                else:
+                    val_num = float(val)
+                    if val_num < 0:
+                        cells.append(
+                            f'<td style="color:#dc3545;font-weight:bold;">{val_num:.0f}</td>'
+                        )
+                    else:
+                        cells.append(f"<td>{val_num:.0f}</td>")
+            else:
+                cells.append(f"<td>{val}</td>")
+        rows_html.append("<tr>" + "".join(cells) + "</tr>")
+
+    return (
+        '<table class="styled-table">'
+        "<thead><tr>" + headers + "</tr></thead>"
+        "<tbody>" + "".join(rows_html) + "</tbody>"
+        "</table>"
+    )
 
 
 def plot_chart(df, x_col, y_col, title, top_n=10):
@@ -317,6 +454,14 @@ def generate_store_report(store_name):
     category_df = safe_read_sql(category_query, params=(store_name, store_name, store_name))
     product_df  = safe_read_sql(product_query,  params=(store_name, store_name, store_name))
 
+    # ── Load stock CSV once, build three O(1) lookups ────────────────────────
+    brand_stock_lookup, category_stock_lookup, product_stock_lookup = load_stock_lookups(store_name)
+
+    # Inject current_stock column right after quantity_sold (numeric, pre-% labels)
+    brand_df    = inject_stock_column(brand_df,    "brandName",    brand_stock_lookup)
+    category_df = inject_stock_column(category_df, "categoryName", category_stock_lookup)
+    product_df  = inject_stock_column(product_df,  "productName",  product_stock_lookup)
+
     # === MODIFIED: Query for Total Sales, Total Cost, Total Profit, and AVERAGE Profit Margin%
     total_sales_profit_query = """
         WITH latest_date AS (
@@ -356,20 +501,31 @@ def generate_store_report(store_name):
     else:
         total_weekly_sales        = 0.0
         total_weekly_cost         = 0.0
-        total_weekly_profit       = 0.0
+        total_weekly_profit       = 0.0 
         avg_profit_margin_percent = 0.0
 
     # ── LLM calls (numeric dfs, before % suffix is added) ────────────────────
     print(f"  🤖 Generating LLM recommendations for {store_name}...")
-    brand_rec = brand_recommendation(store_name, brand_df,    total_weekly_sales, week_start=week_start, engine=engine, report_type="weekly")
+    brand_rec    = brand_recommendation(store_name, brand_df,    total_weekly_sales, week_start=week_start, engine=engine, report_type="weekly")
     category_rec = category_recommendation(store_name, category_df, total_weekly_sales, week_start=week_start, engine=engine, report_type="weekly")
     product_rec  = product_recommendation(store_name, product_df,  total_weekly_sales, week_start=week_start, engine=engine, report_type="weekly")
-    # 
-    # ADD THIS (after product_rec, before "Add percentage symbols"):
-    
+
+    # ── Stock insight calls (reads per-store CSV from STOCK_DIR) ─────────────
+    # Returns "" silently if the CSV doesn't exist for this store, so safe to
+    # call even when stock.py hasn't been run yet.
+    print(f"  📦 Generating stock insights for {store_name}...")
+    brand_stock_rec    = brand_stock_insight(store_name,    STOCK_DIR, LOW_STOCK_THRESHOLD)
+    category_stock_rec = category_stock_insight(store_name, STOCK_DIR, LOW_STOCK_THRESHOLD)
+    product_stock_rec  = product_stock_insight(store_name,  STOCK_DIR, LOW_STOCK_THRESHOLD)
+
+    # ── RTV insight call (reads per-store CSV from RTV_DIR) ───────────────────
+    # Returns "" silently if rtv.py hasn't been run or no returns today.
+    print(f"  🔄 Generating RTV insights for {store_name}...")
+    rtv_rec = rtv_insight(store_name, RTV_DIR)
+
     save_weekly_snapshot(store_name, week_start, brand_df, category_df, product_df, engine)
 
-    # Add percentage symbols (AFTER LLM calls)
+    # Add percentage symbols (AFTER LLM calls, skip current_stock)
     for df in [brand_df, category_df, product_df]:
         if not df.empty:
             if 'contrib_percent' in df.columns:
@@ -381,6 +537,11 @@ def generate_store_report(store_name):
     brand_chart    = plot_chart(brand_df,    "brandName",    "total_sales", "Top 10 Brands by Sales")
     category_chart = plot_chart(category_df, "categoryName", "total_sales", "Top 10 Categories by Sales")
     product_chart  = plot_chart(product_df,  "productName",  "total_sales", "Top 10 Products by Sales")
+
+    # --- Render tables (short headers + colour-coded stock column) ---
+    brand_table_html    = df_to_html_with_stock(brand_df)
+    category_table_html = df_to_html_with_stock(category_df)
+    product_table_html  = df_to_html_with_stock(product_df)
 
     # --- HTML Template ---
     html_template = f"""
@@ -469,7 +630,7 @@ def generate_store_report(store_name):
         </style>
     </head>
     <body>
-        <img src="file:///base/dir/sales_analysis_algorithm/tns.png" class="logo" alt="Company Logo">
+        <img src="file:///home/azureuser/azure_analysis_algorithm/tns.png" class="logo" alt="Company Logo">
         <h1>📊 Weekly Store Report – {store_name}</h1>
         <div class="date-range">Week: {week_start_str} to {week_end_str}</div>
         <h2>Total Weekly Sales: ₹{total_weekly_sales:,.2f}</h2>
@@ -485,28 +646,32 @@ def generate_store_report(store_name):
         {comparison_text}
 
         <div class="table-title">Top 50 Brands (by Sales)</div>
-        {brand_df.to_html(index=False, classes="styled-table")}
+        {brand_table_html}
         {brand_chart}
         {brand_rec}
+        {brand_stock_rec}
 
         
-        <div style="height: 500px;"></div>
+        <div style="height: 240px;"></div>
         <div class="table-title">Top 50 Categories (by Sales)</div>
-        {category_df.to_html(index=False, classes="styled-table")}
+        {category_table_html}
         {category_chart}
         {category_rec}
+        {category_stock_rec}
 
         <div class="table-title">Top 100 Products (by Sales)</div>
-        {product_df.to_html(index=False, classes="styled-table")}
+        {product_table_html}
         {product_chart}
         {product_rec}
+        {product_stock_rec}
+        {rtv_rec}
     </body>
     </html>
     """
 
     # Save PDF
-    os.makedirs("/base/dir/sales_analysis_algorithm/store_reports", exist_ok=True)
-    pdf_path = os.path.join("/base/dir/sales_analysis_algorithm/store_reports", f"{store_name.replace(' ', '_')}_weekly_report.pdf")
+    os.makedirs("/home/azureuser/azure_analysis_algorithm/store_reports", exist_ok=True)
+    pdf_path = os.path.join("/home/azureuser/azure_analysis_algorithm/store_reports", f"{store_name.replace(' ', '_')}_weekly_report.pdf")
     pdfkit.from_string(html_template, pdf_path, configuration=PDFKIT_CONFIG, options={"enable-local-file-access": ""})
     print(f"✅ Saved {store_name} report → {pdf_path}")
 

@@ -631,14 +631,14 @@ Write exactly 5 bullets:
 1. [STOCK PRIORITY] Top 2 brands by revenue — name + Rs. revenue + margin % + {trend_label} sales_change if available + one action:
    If sales_change shown → include it in the bullet, e.g. "Red Bull (+18% {trend_label})"
    margin >30% → "reorder immediately and expand shelf space"
-   margin 15-30% → "maintain stock and push supplier for a better rate this {period_label}"
-   margin <15% → "keep stocked but renegotiate supplier cost before next reorder"
+   margin 15-30% → "maintain stock and add a combo deal with a complementary brand at checkout to grow basket size this {period_label}"
+   margin <15% → "check if any SKUs are being sold below MRP — remove discounts and ensure full shelf-price billing this {period_label}"
 
 2. [MARGIN RISK] Most urgent from LOW MARGIN / HIGH RISK list above — name + margin % + margin_shift if shown + one action:
-   margin <0% → "halt reorders — sell through existing stock to recover cash, then delist unless supplier resolves cost"
-   margin 0-5% → "renegotiate supplier cost this {period_label} or discontinue — margin is unsustainable"
-   margin 5-10% → "push supplier for a better rate — 2% cost reduction will meaningfully improve margin"
-   margin 10-15% → "negotiate supplier contract this {period_label} — small cost reduction has meaningful profit impact"
+   margin <0% → "check if this brand's selling price has been discounted below cost — revert to MRP immediately and place at store entrance or next to the top revenue brand to drive full-price sales volume"
+   margin 0-5% → "verify all SKUs in this brand are billed at MRP — remove any active discounts and move to high-footfall shelf to drive volume at full price"
+   margin 5-10% → "move to eye-level shelf next to the top revenue brand and add a combo price tag — higher visibility will drive volume and compensate for thin margin"
+   margin 10-15% → "increase facings on the top 2 SKUs and place at checkout for impulse purchase — growing volume is the fastest way to improve total profit this {period_label}"
 
 3. [HIDDEN OPPORTUNITY] Best from HIGH MARGIN UNDERUTILISED list above — name + margin % + sales_change if shown + one action:
    "Place at counter or bundle with the top revenue brand this {period_label} to drive volume"
@@ -654,7 +654,7 @@ Write exactly 5 bullets:
    Else if RISING STAR exists → name the brand + sales_change % + "increase shelf space and reorder — gaining momentum"
    Else if MARGIN EROSION exists → name the brand + margin_shift + "call supplier immediately — margin declining two periods in a row"
    Else if {trend_label} declining brands exist → name worst + sales_change % + "check supplier delivery and reduce reorder until cause is clear"
-   Else → name the highest mix-shift-risk brand + its contrib% and margin% + "takes shelf space but delivers below-average margin — push supplier for better cost" """
+   Else → name the highest mix-shift-risk brand + its contrib% and margin% + "occupies prime shelf space but delivers below-average margin — reduce facings by 30% and trial an alternate higher-margin brand" """
     text, fallback = _get_recommendation(prompt)
     return _wrap_html(text, fallback)
 
@@ -737,19 +737,19 @@ Write exactly 5 bullets:
 1. [REVENUE DRIVER] Top 2 categories by revenue — name + Rs. revenue + contrib% + {trend_label} sales_change if available + one action:
    contrib >20% → "ensure full range is always in stock and protect supplier terms"
    contrib 10-20% → "add 2-3 high-margin SKUs to grow contribution this {period_label}"
-   contrib <10% → "cut lowest-margin SKUs and focus on the top 3 sellers in this category"
+   contrib <10% → "place the top 3 sellers in this category at eye level next to the highest revenue category to increase visibility and drive volume this {period_label}"
 
 2. [MARGIN RISK] Most urgent from LOW MARGIN / HIGH RISK list above — name + margin % + margin_shift if shown + one action:
-   margin <0% → "sell through existing stock immediately — do not reorder until supplier cost is renegotiated"
-   margin 0-5% → "renegotiate supplier terms this {period_label} or reduce range — margin is unsustainable"
-   margin 5-10% → "push supplier for a better cost — 2% improvement on rate lifts this category's margin meaningfully"
-   margin 10-15% → "negotiate supplier contract this {period_label} — even a small cost reduction has meaningful impact"
+   margin <0% → "check if this category's selling price has been discounted below cost — revert to MRP and bundle top SKUs with the highest revenue category to recover full-price sales this {period_label}"
+   margin 0-5% → "verify all SKUs in this category are billed at MRP — remove active discounts and move top sellers to high-footfall shelf to recover margin this {period_label}"
+   margin 5-10% → "shift the top 2 SKUs to eye-level shelf next to the highest revenue category — driving volume is the fastest way to improve total profit at this margin"
+   margin 10-15% → "place the top 3 SKUs at checkout for impulse purchase and add a combo tag with the top revenue category — volume growth will maximise profit this {period_label}"
 
 3. [HIDDEN OPPORTUNITY] Best from HIGH MARGIN UNDERUTILISED list above — name + margin % + sales_change if shown + one action:
    "Move to higher-traffic shelf or bundle with the top revenue category to drive volume this {period_label}"
 
 4. [SLOW MOVERS] Top 2 from BOTTOM QUANTITY — name + quantity + how far below store avg + one action:
-   qty <=5 → "delist lowest-margin SKUs immediately — too few units to justify shelf space"
+   qty <=5 → "place remaining units on the shelf next to the top-selling category with a handwritten combo offer tag to drive attachment sales"
    qty 6-15 → "cut to top 2 SKUs and move to checkout counter for impulse purchase"
    qty 16-40 → "bundle with top revenue category and add combo price tag this {period_label}"
    qty 41-80 → "run a category promotion or relocate to higher-footfall position this {period_label}"
@@ -759,7 +759,7 @@ Write exactly 5 bullets:
    Else if RISING STAR exists → name the category + sales_change % + "increase range and stock — gaining momentum"
    Else if MARGIN EROSION exists → name the category + margin_shift + "call supplier — margin declining two periods"
    Else if {trend_label} declining categories exist → name worst + sales_change % + "check if key SKU out of stock or delivery failed"
-   Else → name the highest mix-shift-risk category + contrib% and margin% + "significant share but below-average margin — push supplier for better cost" """
+   Else → name the highest mix-shift-risk category + contrib% and margin% + "high shelf share but below-average margin — reduce lowest-margin SKUs by half and replace with proven high-margin alternatives" """
     text, fallback = _get_recommendation(prompt)
     return _wrap_html(text, fallback)
 
@@ -843,13 +843,13 @@ Write exactly 5 bullets:
    If sales_change shown → include it, e.g. "Red Bull (+18% {trend_label})"
    margin >30% → "reorder immediately and give it more shelf space"
    margin 15-30% → "maintain stock and bundle with a complementary product this {period_label}"
-   margin <15% → "keep stocked but renegotiate supplier cost at next reorder"
+   margin <15% → "check if this product is being sold below MRP — remove any discount and ensure full shelf-price billing to protect margin"
 
 2. [MARGIN RISK] Most urgent from LOW MARGIN / HIGH RISK list above — name + margin % + margin_shift if shown + one action:
-   margin <0% → "stop reordering — sell through existing stock to recover cash, then delist unless supplier fixes cost"
-   margin 0-5% → "renegotiate supplier cost this {period_label} or remove from range — margin is unsustainable"
-   margin 5-10% → "push supplier for a better rate — 2% cost reduction improves margin meaningfully"
-   margin 10-15% → "negotiate supplier contract this {period_label} — small cost reduction has significant profit impact"
+   margin <0% → "check if this product's selling price has been discounted below cost — revert to MRP immediately and move to eye-level shelf next to the top revenue product to recover full-price sales"
+   margin 0-5% → "verify this product is billed at MRP — remove any active discount and place at checkout for impulse purchase to drive full-price volume"
+   margin 5-10% → "move to eye-level shelf next to the top revenue product and add a combo price tag to drive volume — higher sales will compensate for the thin margin"
+   margin 10-15% → "place at checkout or bundle with the top revenue product — increasing units sold is the fastest path to improving total profit this {period_label}"
 
 3. [HIDDEN OPPORTUNITY] Best from HIGH MARGIN UNDERUTILISED list above — name + margin % + sales_change if shown + one action:
    "Move to eye level or checkout counter, or bundle with top revenue product for an upsell this {period_label}"
@@ -866,6 +866,562 @@ Write exactly 5 bullets:
    Else if RISING STAR exists → name the product + sales_change % + "increase shelf space and reorder — gaining momentum"
    Else if MARGIN EROSION exists → name the product + margin_shift + "call supplier immediately — margin declining two periods in a row"
    Else if {trend_label} declining products exist → name worst + sales_change % + "check if out of stock or competitor undercutting — reduce reorder until cause is clear"
-   Else → name the highest mix-shift-risk product + contrib% and margin% + "occupies shelf share but delivers below-average margin — push supplier for better cost" """
+   Else → name the highest mix-shift-risk product + contrib% and margin% + "occupies shelf space but delivers below-average margin — delist bottom 2 SKUs and replace with a higher-margin alternative from the same category" """
     text, fallback = _get_recommendation(prompt)
     return _wrap_html(text, fallback)
+
+
+# ══════════════════════════════════════════════════════════════════════════════
+# ── STOCK INSIGHT FUNCTIONS ───────────────────────────────────────────────────
+# ══════════════════════════════════════════════════════════════════════════════
+#
+# These three functions read the per-store stock CSV (downloaded by stock.py),
+# compute low/out-of-stock intelligence for the requested dimension
+# (brand / category / product), and return a styled HTML block that is
+# appended directly to the existing AI Recommendation box in the weekly
+# (or monthly) PDF report — rendered right after the sales insight bullets.
+#
+# Usage in weekly_llm.py  (add after the existing brand_rec / category_rec /
+# product_rec calls):
+#
+#   from llm_recommender import (
+#       brand_recommendation, category_recommendation, product_recommendation,
+#       brand_stock_insight, category_stock_insight, product_stock_insight,
+#   )
+#
+#   STOCK_DIR = "store_stocks"          # directory where stock.py saves CSVs
+#   LOW_STOCK_THRESHOLD = 5             # units; tweak as needed
+#
+#   brand_stock    = brand_stock_insight(store_name, STOCK_DIR, LOW_STOCK_THRESHOLD)
+#   category_stock = category_stock_insight(store_name, STOCK_DIR, LOW_STOCK_THRESHOLD)
+#   product_stock  = product_stock_insight(store_name, STOCK_DIR, LOW_STOCK_THRESHOLD)
+#
+# Then in the HTML template, append each *_stock variable right after its
+# corresponding *_rec variable:
+#
+#   {brand_rec}
+#   {brand_stock}
+#   ...
+#   {category_rec}
+#   {category_stock}
+#   ...
+#   {product_rec}
+#   {product_stock}
+#
+# ─────────────────────────────────────────────────────────────────────────────
+
+_LOW_STOCK_STYLE = """
+<div style="
+    background: #fff8e1;
+    border-left: 5px solid #f9a825;
+    border-radius: 6px;
+    padding: 14px 18px;
+    margin: 10px 0 24px 0;
+    font-family: 'Segoe UI', sans-serif;
+">
+    <div style="font-size:15px; font-weight:bold; color:#e65100; margin-bottom:8px;">
+        {header}
+    </div>
+    <div style="font-size:14px; line-height:1.9;">
+{body}
+    </div>
+</div>
+"""
+
+_LOW_STOCK_UNAVAILABLE = _LOW_STOCK_STYLE.format(
+    header="⚠️ New Shop Stock Alert — Unavailable",
+    body="Could not generate stock insight. Check that the store stock CSV exists in the stock directory."
+)
+
+_STOCK_BULLET_RULES = (
+    "One sentence per bullet. Name + number + one action only. "
+    "No generic phrases. No repeated names. Use only numbers from the data."
+)
+
+# ── Stock bullet colour constants ─────────────────────────────────────────────
+_C_NEG     = "#c62828"   # deep red  — negative stock / GRN anomaly
+_C_OOS     = "#e65100"   # dark orange — out of stock
+_C_LOW     = "#f57c00"   # orange    — low stock
+_C_GAP     = "#1565c0"   # blue      — high-value gap product
+_C_PATTERN = "#6a1b9a"   # purple    — systemic pattern
+
+def _sb(color: str, text: str) -> str:
+    """Wrap one stock alert bullet as a coloured HTML div."""
+    return f'<div style="color:{color}; margin:4px 0;">{text}</div>'
+
+
+def _load_stock_csv(store_name: str, stock_dir: str) -> pd.DataFrame:
+    """
+    Load the stock CSV for a store from stock_dir.
+    Tries <store_name>.csv first (exact match), then with spaces replaced by
+    underscores to match how stock.py saves files.
+    Returns an empty DataFrame on any failure.
+    """
+    safe_name = store_name.replace("/", "_")
+    candidates = [
+        os.path.join(stock_dir, f"{safe_name}.csv"),
+        os.path.join(stock_dir, f"{store_name}.csv"),
+    ]
+    for path in candidates:
+        if os.path.exists(path):
+            try:
+                df = pd.read_csv(path)
+                for col in ["quantity", "sellingPrice", "costPrice", "printedMrp", "totalAmount"]:
+                    if col in df.columns:
+                        df[col] = pd.to_numeric(df[col], errors="coerce").fillna(0.0)
+                return df
+            except Exception as e:
+                print(f"      ⚠️  Stock CSV read error for {store_name}: {e}")
+                return pd.DataFrame()
+    print(f"      ℹ️  No stock CSV found for {store_name} in {stock_dir} — stock insight skipped.")
+    return pd.DataFrame()
+
+
+def _compute_stock_intelligence(
+    stock_df: pd.DataFrame,
+    group_col: str,
+    threshold: float,
+) -> dict:
+    """
+    Aggregate stock data by group_col and return intelligence dict.
+
+    Returns dict with:
+      - oos_items      : list of dicts — completely out-of-stock groups
+      - low_items      : list of dicts — groups with 1–threshold units
+      - high_value_oos : top out-of-stock groups by sellingPrice * quantity_lost
+      - summary        : store-level counts
+    """
+    if stock_df.empty or group_col not in stock_df.columns:
+        return {}
+
+    df = stock_df.copy()
+    neg_df = df[df["quantity"] < 0]                      # sold without GRN
+    oos_df = df[df["quantity"] == 0]
+    low_df = df[(df["quantity"] > 0) & (df["quantity"] <= threshold)]
+
+    def _agg(subset, label):
+        if subset.empty:
+            return []
+        agg = (
+            subset.groupby(group_col)
+            .agg(
+                sku_count=("productName", "count"),
+                min_qty=("quantity", "min"),
+                avg_selling_price=("sellingPrice", "mean"),
+                total_value_at_risk=("sellingPrice", "sum"),
+            )
+            .sort_values("sku_count", ascending=False)
+            .reset_index()
+            .head(10)
+        )
+        records = agg.to_dict("records")
+        for r in records:
+            r["status"] = label
+            r["avg_selling_price"] = round(r["avg_selling_price"], 2)
+            r["total_value_at_risk"] = round(r["total_value_at_risk"], 2)
+        return records
+
+    oos_items = _agg(oos_df, "OUT_OF_STOCK")
+    low_items = _agg(low_df, f"LOW_STOCK (≤{threshold:.0f} units)")
+
+    # ── Negative stock: items sold without GRN — grouped by group_col ────────
+    neg_items = []
+    if not neg_df.empty:
+        agg_neg = (
+            neg_df.groupby(group_col)
+            .agg(
+                sku_count=("productName", "count"),
+                min_qty=("quantity", "min"),      # most negative value in group
+                total_qty=("quantity", "sum"),    # sum of all negative quantities
+                avg_selling_price=("sellingPrice", "mean"),
+            )
+            .sort_values("sku_count", ascending=False)
+            .reset_index()
+            .head(10)
+        )
+        neg_items = agg_neg.to_dict("records")
+        for r in neg_items:
+            r["avg_selling_price"] = round(r["avg_selling_price"], 2)
+            r["total_qty"]         = round(r["total_qty"], 2)
+            r["min_qty"]           = round(r["min_qty"], 2)
+
+    # ── Negative stock: individual products (worst quantity first) ────────────
+    neg_products = []
+    if not neg_df.empty and "productName" in neg_df.columns:
+        neg_products = (
+            neg_df[["productName", group_col, "quantity", "sellingPrice", "vendorName"]]
+            .sort_values("quantity")           # most negative first
+            .head(10)
+            .round(2)
+            .to_dict("records")
+        )
+
+    # High-value OOS: products with highest selling price that are out of stock
+    high_value_oos = []
+    if not oos_df.empty:
+        hv = (
+            oos_df[["productName", group_col, "sellingPrice"]]
+            .sort_values("sellingPrice", ascending=False)
+            .head(5)
+            .to_dict("records")
+        )
+        high_value_oos = [
+            {group_col: r[group_col], "productName": r["productName"],
+             "sellingPrice": round(r["sellingPrice"], 2)}
+            for r in hv
+        ]
+
+    return {
+        "oos_items":       oos_items,
+        "low_items":       low_items,
+        "neg_items":       neg_items,        # grouped negative stock by dimension
+        "neg_products":    neg_products,     # individual negative-stock SKUs
+        "high_value_oos":  high_value_oos,
+        "total_skus":      len(df),
+        "oos_count":       len(oos_df),
+        "low_count":       len(low_df),
+        "neg_count":       len(neg_df),      # total SKUs with negative qty
+        "threshold":       threshold,
+    }
+
+
+def _wrap_stock_html(bullets: list) -> str:
+    if not bullets:
+        return _LOW_STOCK_UNAVAILABLE
+    return _LOW_STOCK_STYLE.format(
+        header="⚠️ New Shop Stock Alert",
+        body="".join(bullets),
+    )
+
+
+# ── Public stock insight API ──────────────────────────────────────────────────
+
+def brand_stock_insight(
+    store_name: str,
+    stock_dir: str,
+    low_stock_threshold: float = 5,
+) -> str:
+    """
+    Generate a stock-alert insight block for brands.
+    Returned HTML is appended after brand_recommendation() in the weekly report.
+    """
+    stock_df = _load_stock_csv(store_name, stock_dir)
+    if stock_df.empty:
+        return ""   # silently skip — no CSV available
+
+    intel = _compute_stock_intelligence(stock_df, "brand", low_stock_threshold)
+    if not intel or (intel["oos_count"] == 0 and intel["low_count"] == 0 and intel["neg_count"] == 0):
+        return ""
+
+    bullets = []
+
+    # Negative stock — deep red
+    for r in intel["neg_items"][:3]:
+        bullets.append(_sb(_C_NEG,
+            f"{r['brand']}: {r['sku_count']} SKU(s) with negative stock "
+            f"(worst: {r['min_qty']:.0f} units) — sold without GRN, post pending GRNs immediately."
+        ))
+
+    # OOS brands — dark orange
+    for r in intel["oos_items"][:2]:
+        bullets.append(_sb(_C_OOS,
+            f"{r['brand']}: {r['sku_count']} SKU(s) completely out of stock "
+            f"(₹{r['total_value_at_risk']:.0f} at risk) — place reorder today."
+        ))
+
+    # Low-stock brands — orange
+    for r in intel["low_items"][:2]:
+        bullets.append(_sb(_C_LOW,
+            f"{r['brand']}: {r['sku_count']} SKU(s) with ≤{intel['threshold']:.0f} units "
+            f"(min {r['min_qty']:.0f} units) — request top-up this week."
+        ))
+
+    # Highest-value OOS product — blue
+    if intel["high_value_oos"]:
+        hv = intel["high_value_oos"][0]
+        bullets.append(_sb(_C_GAP,
+            f"{hv['productName']} ({hv['brand']}, ₹{hv['sellingPrice']:.0f}) "
+            f"— out of stock, fast-track reorder to avoid lost revenue."
+        ))
+
+    return _wrap_stock_html(bullets)
+
+
+def category_stock_insight(
+    store_name: str,
+    stock_dir: str,
+    low_stock_threshold: float = 5,
+) -> str:
+    """
+    Generate a stock-alert insight block for categories.
+    Returned HTML is appended after category_recommendation() in the weekly report.
+    """
+    stock_df = _load_stock_csv(store_name, stock_dir)
+    if stock_df.empty:
+        return ""
+
+    intel = _compute_stock_intelligence(stock_df, "categoryName", low_stock_threshold)
+    if not intel or (intel["oos_count"] == 0 and intel["low_count"] == 0 and intel["neg_count"] == 0):
+        return ""
+
+    bullets = []
+
+    # Negative stock — deep red
+    for r in intel["neg_items"][:3]:
+        bullets.append(_sb(_C_NEG,
+            f"{r['categoryName']}: {r['sku_count']} SKU(s) with negative stock "
+            f"(worst: {r['min_qty']:.0f} units) — sold without GRN, post pending GRNs immediately."
+        ))
+
+    # OOS categories — dark orange
+    for r in intel["oos_items"][:2]:
+        bullets.append(_sb(_C_OOS,
+            f"{r['categoryName']}: {r['sku_count']} SKU(s) completely out of stock "
+            f"(₹{r['total_value_at_risk']:.0f} at risk) — contact supplier today."
+        ))
+
+    # Low-stock categories — orange
+    for r in intel["low_items"][:2]:
+        bullets.append(_sb(_C_LOW,
+            f"{r['categoryName']}: {r['sku_count']} SKU(s) with ≤{intel['threshold']:.0f} units "
+            f"(min {r['min_qty']:.0f} units) — prioritise restock before weekend."
+        ))
+
+    # Highest-value OOS product — blue
+    if intel["high_value_oos"]:
+        hv = intel["high_value_oos"][0]
+        bullets.append(_sb(_C_GAP,
+            f"{hv['productName']} ({hv['categoryName']}, ₹{hv['sellingPrice']:.0f}) "
+            f"— out of stock, fast-track reorder to protect category revenue."
+        ))
+
+    return _wrap_stock_html(bullets)
+
+
+def product_stock_insight(
+    store_name: str,
+    stock_dir: str,
+    low_stock_threshold: float = 5,
+) -> str:
+    """
+    Generate a stock-alert insight block for individual products.
+    Returned HTML is appended after product_recommendation() in the weekly report.
+    Focuses on the most critical individual SKUs — highest selling price OOS first.
+    """
+    stock_df = _load_stock_csv(store_name, stock_dir)
+    if stock_df.empty:
+        return ""
+
+    if "productName" not in stock_df.columns:
+        return ""
+
+    oos_df = stock_df[stock_df["quantity"] == 0].copy()
+    low_df = stock_df[
+        (stock_df["quantity"] > 0) & (stock_df["quantity"] <= low_stock_threshold)
+    ].copy()
+    neg_df = stock_df[stock_df["quantity"] < 0].copy()
+
+    if oos_df.empty and low_df.empty and neg_df.empty:
+        return ""
+
+    # Top OOS by selling price — highest revenue risk
+    top_oos = (
+        oos_df[["productName", "brand", "categoryName", "sellingPrice", "vendorName"]]
+        .sort_values("sellingPrice", ascending=False)
+        .head(10)
+        .to_dict("records")
+    ) if not oos_df.empty else []
+
+    # Top low-stock sorted by sellingPrice descending
+    top_low = (
+        low_df[["productName", "brand", "categoryName", "quantity", "sellingPrice", "vendorName"]]
+        .sort_values("sellingPrice", ascending=False)
+        .head(8)
+        .to_dict("records")
+    ) if not low_df.empty else []
+
+    # Negative stock — most negative quantity first (worst GRN offenders)
+    top_neg = (
+        neg_df[["productName", "brand", "categoryName", "quantity", "sellingPrice", "vendorName"]]
+        .sort_values("quantity")
+        .head(10)
+        .round(2)
+        .to_dict("records")
+    ) if not neg_df.empty else []
+
+    import json as _json
+
+    bullets = []
+
+    # Negative stock — deep red
+    for r in top_neg[:3]:
+        bullets.append(_sb(_C_NEG,
+            f"{r['productName']} (qty {r['quantity']:.0f}, vendor: {r.get('vendorName', 'unknown')}) "
+            f"— negative stock, sold without GRN. Post GRN immediately."
+        ))
+    if len(top_neg) > 3:
+        bullets.append(_sb(_C_NEG,
+            f"{len(neg_df)} SKUs total have negative stock — run full GRN reconciliation today."
+        ))
+
+    # OOS products — dark orange
+    for r in top_oos[:2]:
+        bullets.append(_sb(_C_OOS,
+            f"{r['productName']} (₹{r['sellingPrice']:.0f}, vendor: {r.get('vendorName', 'unknown')}) "
+            f"— out of stock, reorder immediately."
+        ))
+
+    # Low-stock products — orange
+    for r in top_low[:2]:
+        bullets.append(_sb(_C_LOW,
+            f"{r['productName']} (qty {r['quantity']:.0f}, ₹{r['sellingPrice']:.0f}, "
+            f"vendor: {r.get('vendorName', 'unknown')}) — critically low, add to next reorder."
+        ))
+
+    # Pattern alert — purple
+    from collections import Counter
+    def _dominant(items, key):
+        c = Counter(r.get(key, "") for r in items if r.get(key))
+        top = c.most_common(1)
+        return (top[0][0], top[0][1]) if top and top[0][1] >= 3 else None
+
+    neg_pattern = _dominant(top_neg, "brand") or _dominant(top_neg, "vendorName")
+    oos_pattern = _dominant(top_oos, "brand") or _dominant(top_oos, "vendorName")
+    if neg_pattern:
+        bullets.append(_sb(_C_PATTERN,
+            f"{neg_pattern[0]}: {neg_pattern[1]} SKUs with negative stock "
+            f"— systemic GRN failure, escalate to account manager."
+        ))
+    elif oos_pattern:
+        bullets.append(_sb(_C_PATTERN,
+            f"{oos_pattern[0]}: {oos_pattern[1]} SKUs out of stock "
+            f"— systemic supply issue, escalate to account manager."
+        ))
+
+    return _wrap_stock_html(bullets)
+
+# ══════════════════════════════════════════════════════════════════════════════
+# ── RTV INSIGHT FUNCTION ──────────────────────────────────────────────────────
+# ══════════════════════════════════════════════════════════════════════════════
+
+_RTV_STYLE = """
+<div style="
+    background: #fce4ec;
+    border-left: 5px solid #c2185b;
+    border-radius: 6px;
+    padding: 14px 18px;
+    margin: 10px 0 24px 0;
+    font-family: 'Segoe UI', sans-serif;
+">
+    <div style="font-size:15px; font-weight:bold; color:#880e4f; margin-bottom:8px;">
+        {header}
+    </div>
+    <div style="font-size:14px; line-height:1.9;">
+{body}
+    </div>
+</div>
+"""
+
+_C_RTV_HIGH   = "#b71c1c"
+_C_RTV_VENDOR = "#880e4f"
+_C_RTV_PROD   = "#ad1457"
+_C_RTV_REASON = "#6a1b9a"
+
+def _rtv_bullet(color: str, text: str) -> str:
+    return f'<div style="color:{color}; margin:4px 0;">{text}</div>'
+
+
+def rtv_insight(store_name: str, rtv_dir: str) -> str:
+    """
+    Generate a Return-to-Vendor alert block for a store.
+    Returns "" silently if no RTV CSV exists for this store.
+
+    Columns expected: rtvId, Date, time, vendorName, productId,
+                      productName, barcode, quantity, price,
+                      totalAmount, description, storeName, doneBy
+    """
+    safe_name  = store_name.replace("/", "_")
+    candidates = [
+        os.path.join(rtv_dir, f"{safe_name}.csv"),
+        os.path.join(rtv_dir, f"{store_name}.csv"),
+    ]
+
+    df = pd.DataFrame()
+    for path in candidates:
+        if os.path.exists(path):
+            try:
+                df = pd.read_csv(path)
+            except Exception as e:
+                print(f"      ⚠️  RTV CSV read error for {store_name}: {e}")
+                return ""
+            break
+
+    if df.empty:
+        return ""
+
+    for col in ["quantity", "price", "totalAmount"]:
+        if col in df.columns:
+            df[col] = pd.to_numeric(df[col], errors="coerce").fillna(0.0)
+
+    total_returns = len(df)
+    total_qty     = int(df["quantity"].sum())
+    total_value   = df["totalAmount"].sum()
+
+    bullets = []
+
+    # Summary
+    bullets.append(_rtv_bullet(_C_RTV_HIGH,
+        f"📦 {total_returns} return line(s) today — {total_qty} units worth "
+        f"₹{total_value:,.0f} sent back to vendors."
+    ))
+
+    # Top vendors by return value
+    if "vendorName" in df.columns:
+        vendor_summary = (
+            df.groupby("vendorName")
+            .agg(lines=("productName", "count"),
+                 qty=("quantity", "sum"),
+                 value=("totalAmount", "sum"))
+            .sort_values("value", ascending=False)
+            .reset_index()
+        )
+        for _, r in vendor_summary.head(2).iterrows():
+            bullets.append(_rtv_bullet(_C_RTV_VENDOR,
+                f"🏭 {r['vendorName']}: {int(r['lines'])} SKU(s), "
+                f"{int(r['qty'])} units, ₹{r['value']:,.0f} returned today."
+            ))
+
+    # Highest value individual products
+    if "productName" in df.columns and "totalAmount" in df.columns:
+        top_products = (
+            df[["productName", "quantity", "price", "totalAmount", "vendorName"]]
+            .sort_values("totalAmount", ascending=False)
+            .head(3)
+        )
+        for _, r in top_products.iterrows():
+            vendor = r.get("vendorName", "unknown") if pd.notna(r.get("vendorName")) else "unknown"
+            bullets.append(_rtv_bullet(_C_RTV_PROD,
+                f"🔁 {r['productName']} — {int(r['quantity'])} units @ "
+                f"₹{r['price']:,.0f}, total ₹{r['totalAmount']:,.0f} "
+                f"(vendor: {vendor})."
+            ))
+
+    # Most common return reason
+    if "description" in df.columns:
+        reasons = df["description"].dropna().str.strip()
+        reasons = reasons[reasons != ""]
+        if not reasons.empty:
+            from collections import Counter
+            top_reason, count = Counter(reasons).most_common(1)[0]
+            bullets.append(_rtv_bullet(_C_RTV_REASON,
+                f"📋 Most common return reason: \"{top_reason}\" "
+                f"({count} occurrence(s)) — investigate with vendor to prevent recurrence."
+            ))
+
+    if not bullets:
+        return ""
+
+    return _RTV_STYLE.format(
+        header="🔄 Return to Vendor (RTV) — Today's Summary",
+        body="".join(bullets),
+    )
