@@ -516,7 +516,7 @@ def _compute_intelligence(df: pd.DataFrame, name_col: str, trend_data: dict) -> 
                     "curr_margin":  round(row["_margin"], 2),
                 })
 
-        declining.sort(key=lambda x: float(x["sales_change"].replace("+", "")))
+        declining.sort(key=lambda x: float(x["sales_change"].replace("+", "").replace("%", "")))
         declining     = declining[:3]
         margin_shifts = margin_shifts[:3]
 
