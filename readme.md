@@ -298,8 +298,8 @@ chmod +x install_monitoring.sh
 
 #### Services:
 
-- Grafana → ```bash http://localhost:3000```
-- Prometheus → ```bash http://localhost:9090```
+- Grafana → ```http://localhost:3000```
+- Prometheus → ```http://localhost:9090```
 
 ### Infrastructure & Deployment
 #### Containerized ETL (Docker + Airflow)
