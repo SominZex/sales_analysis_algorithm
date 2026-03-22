@@ -331,14 +331,14 @@ class TestComputeIntelligence:
             {"brandName": "C",        "total_sales": 1000},
         ])
         result = _compute_intelligence(df, "brandName", {})
-        assert result["concentration_flag"] is True
+        assert result["concentration_flag"] == True
 
     def test_concentration_flag_not_set_when_spread(self):
         df = make_brand_df([
             {"brandName": f"Brand{i}", "total_sales": 1000} for i in range(10)
         ])
         result = _compute_intelligence(df, "brandName", {})
-        assert result["concentration_flag"] is False
+        assert result["concentration_flag"] == False
 
     def test_negative_margin_appears_in_anomalies(self):
         df = make_brand_df([

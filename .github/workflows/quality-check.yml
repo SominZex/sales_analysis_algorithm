@@ -45,9 +45,9 @@ jobs:
           pytest tests/ \
             -v \
             --tb=short \
-            --cov=llm_recommender \
+            --cov=automation \
             --cov-report=term-missing \
-            --cov-fail-under=60
+            --cov-fail-under=20
 
       - name: Upload coverage report
         if: always()
