@@ -273,11 +273,24 @@ All reports are generated as PDF files using `pdfkit` / `wkhtmltopdf` and are st
 - Failure tracking per recipient
 
 ### WhatsApp
-- Daily sales summary sent via WhatsApp Business API
-- Weekly LLM summary sent to business partners after weekly report
-- Stock alerts sent to store business partners (low stock + negative stock)
+
+**Daily sales summary** (`wa_sender.py`)
+- Store-level daily performance summary sent via WhatsApp Business API to business partners
+
+**Weekly LLM summary** (`weekly_llm.py`)
+- After weekly report generation, LLM-generated insights are formatted as a WhatsApp message and sent directly to each store's business partner
+
+**Low stock & negative stock alerts** (`wa_stock_alert.py`)
+- Runs after `stock.py` fetches the latest store stock CSVs
+- Sends a structured plain-text alert per store to the business partner when issues are detected
+- Three alert tiers:
+  - 🔴 **Negative stock** — SKUs with `quantity < 0`, meaning items sold without a GRN posted; grouped by brand with worst quantity value and total affected SKU count; triggers immediate GRN reconciliation action
+  - 🟡 **Low stock** — SKUs with `quantity ≤ threshold` (default 5 units); grouped by brand with highest-value products listed first; triggers reorder action
+  - 🚨 **Systemic pattern** — fires when 3+ SKUs from the same brand or vendor appear in negative or out-of-stock state; triggers escalation to account manager
+- Stores with no stock issues receive no message — no noise
 - Partner mapping via `partner.csv` (`storeName`, `email`, `wa_number`)
-- Phone numbers normalised automatically; 2-second send delay for API rate compliance
+- Phone numbers normalised automatically (strips `+`, spaces, dashes)
+- 2-second delay between sends for WhatsApp Business API rate compliance
 
 ---
 
