@@ -255,6 +255,8 @@ docker compose up -d
 ```bash
 http://localhost:8080
 ```
+### Workflow
+<img width="1538" height="616" alt="dags" src="https://github.com/user-attachments/assets/1f1d2b17-9f75-4413-9dfb-3ce48698807b" />
 
 ## Observability & Reliability
 #### Logging
