@@ -18,7 +18,7 @@ import os
 # Allow import from project root
 sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 
-from llm_recommender import (
+from automation.llm_recommender import (
     _clean_numeric,
     _compute_trend,
     _enrich_with_trends,
