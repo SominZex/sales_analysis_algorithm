@@ -84,7 +84,8 @@ Q --> S
 
 S --> R
 T --> R
-R --> U ```
+R --> U 
+```
 
 ## Overview
 
