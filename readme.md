@@ -1,10 +1,11 @@
-# LLM-Integrated Sales Intelligence Automation Engine
+# LLM-Integrated Sales Intelligence Automation System
 
 A production-grade automated analytics platform that ingests retail sales data,
 computes deterministic business intelligence signals, and generates
 LLM-grounded operational recommendations delivered via automated reports.
 
-# System Architecture
+
+# 🏗️ System Architecture
 
 ```mermaid
 flowchart TD
@@ -28,6 +29,7 @@ subgraph LLM Layer
 I[Groq LLaMA 3.1]
 J[Ollama Fallback]
 K[Operational Recommendations]
+W[LLM WhatsApp Message]
 end
 
 subgraph Reporting
@@ -40,6 +42,11 @@ end
 subgraph Distribution
 P[Email Delivery]
 Q[WhatsApp Automation]
+end
+
+subgraph Monitoring Jobs
+X[Stock Fetch Pipeline]
+Y[RTV Fetch Pipeline]
 end
 
 subgraph Observability Layer
@@ -69,10 +76,17 @@ L --> M
 L --> N
 L --> O
 
-M --> P
+%% Notifications
+N --> W
+W --> Q
+
 M --> Q
 N --> P
 O --> P
+
+%% Monitoring jobs
+A --> X
+A --> Y
 
 %% Observability flows
 B --> S
@@ -81,10 +95,12 @@ E --> S
 L --> S
 P --> S
 Q --> S
+X --> S
+Y --> S
 
 S --> R
 T --> R
-R --> U 
+R --> U
 ```
 
 ## Overview
@@ -99,28 +115,89 @@ R --> U
 - Operate without manual intervention after deployment
 - Provide real-time observability into system health
 
+
 ### The system follows a hybrid orchestration architecture:
 - Apache Airflow orchestrates everything
 - A deterministic Intelligence Engine computes KPIs and risk signals
 - A constrained LLM layer converts structured analytics into prioritized store-level actions
 
+## Data Validation & Data Quality Check
+
+The system enforces strict data validation during the ETL stage to ensure that all downstream analytics, intelligence signals, and LLM outputs are based on reliable and consistent data.
+
+### Validation Strategy
+Validation is performed during data ingestion before persistence into the analytics database.
+
+### Checks Implemented
+- Schema validation (required fields, correct data types)
+- Null checks on critical fields (e.g. revenue, quantity)
+- Range validation (e.g. negative revenue, invalid margins)
+- Duplicate detection and removal
+- API response integrity validation
+
+### Failure Handling
+- Invalid records are rejected or logged
+- Critical validation failures halt pipeline execution
+- Non-critical anomalies are logged for monitoring
+
+### Impact
+- Prevents corrupted data from entering the analytics layer
+- Ensures deterministic KPI computation
+- Reduces risk of incorrect LLM-generated recommendations
+- Improves overall system reliability and trustworthiness
 
 ## Key Capabilities 
-- End-to-end Airflow orchestration
-- Deterministic DAG execution
-- Daily, Weekly, Monthly branching logic
-- Automated ETL pipeline
-- Growth comparison logic (WoW & MoM)
+#### Data & ETL
+- API-driven ingestion
+- Idempotent pipelines
+- Time-window controlled processing
+- Safe re-runs
+
+#### Intelligence Engine
+- Revenue, margin, growth KPIs
+- WoW / MoM comparisons
+- Risk scoring (stockout, decline, anomalies)
 - Snapshot-based historical memory
-- Revenue-weighted risk scoring
-- Predictive signal detection (stockout, margin erosion, rising stars)
-- Automated PDF generation
-- WhatsApp automation
-- Email automation
-- Structured logging
-- Built-in retry & alerting
-- Groq → Ollama fallback for LLM reliability
-- Zero manual operational dependency
+
+#### LLM Layer
+- Structured prompting (no hallucination dependency)
+- Groq primary + Ollama fallback
+- Latency + fallback tracking
+
+#### Reporting
+- Daily operational reports
+- Weekly performance reports
+- Monthly strategic reports
+- Store-level intelligence
+
+### Notifications (Critical Addition)
+#### Weekly LLM WhatsApp Summary
+- Generated after weekly report
+- LLM converts structured insights into:
+- Actionable recommendations
+- Business-readable summary
+- Sent directly to business partners via WhatsApp
+
+#### Stock Alerts
+- Weekly stock data ingestion
+##### Detects:
+- Low stock SKUs
+- Negative stock anomalies
+- Sends WhatsApp alerts
+
+### Monitoring Pipelines
+#### Stock Pipeline
+##### Fetches store-level stock CSVs via API
+### Used for:
+- Inventory monitoring
+- Low stock alerts
+- Negative stock detection
+
+#### RTV Pipeline
+##### Fetches daily RTV (Return to Vendor) data
+### Tracks:
+- Return volume
+- Financial impact
 
 ## System Architecture
 #### The system follows a layered orchestration strategy:
@@ -137,48 +214,6 @@ R --> U
 
 
 
-#### Benefits:
-- Centralized scheduling
-- Clear dependency management
-- Built-in retries & alerting
-- Simplified operations
-- Historical trend awareness
-- Deterministic insight generation
-- No time-drift between systems
-
-### Data Engineering Layer (Apache Airflow)
-#### The ETL layer is orchestrated using Apache Airflow, deployed via Docker.
-### Responsibility
-- Sales data is fetched via API calls from the upstream retail system.
-- Data is loaded into a sandbox / analytics database
-- Orchestrates data extraction and transformation tasks
-- Manages dependencies between ETL jobs
-- Provides retry, monitoring, logging, and scheduling
-- Ensures deterministic execution of structured data workflows
-
-## Design Characteristics
-- DAG-driven deterministic execution
-- Time-window controlled processing
-- Safe re-runs (idempotent writes)
-- Dependency-aware scheduling
-- Controlled retry policy
-- Containerized execution environment
-- Snapshot-backed intelligence memory
-- Numeric-grounded LLM outputs
-- LLM used strictly as a structured rendering layer
-
-### Reporting & Distribution Layer:
-
-### Responsibilities
-- PDF report generation
-- Excel report creation
-- WhatsApp automation
-- Email distribution
-- Duplicate prevention logic
-- File-system bound execution
-- Embedded KPI-based action recommendations
-
-
 ## Execution Flow
 
 ```mermaid
@@ -189,14 +224,16 @@ flowchart TD
     D --> E[Intelligence Engine]
     E --> F[LLM Recommendation Layer]
     F --> G[Daily WhatsApp]
+
     G --> H{Weekly?}
-    H -->|Yes| I[Weekly Snapshot + Reports]
-    I --> J[Weekly Mail]
-    H -->|No| K[Skip Weekly]
-    G --> L{Monthly?}
-    L -->|Yes| M[Monthly Snapshot + Reports]
-    M --> N[Monthly Mail]
-    L -->|No| O[Skip Monthly]
+    H -->|Yes| I[Weekly Report]
+    I --> J[LLM WhatsApp Summary]
+    J --> K[Send to Business Partner]
+    I --> L[Weekly Mail]
+
+    G --> M{Monthly?}
+    M -->|Yes| N[Monthly Report]
+    N --> O[Monthly Mail]
 ```
 
 ## Reporting Logic
@@ -215,6 +252,8 @@ flowchart TD
 - Margin shift detection
 - Risk scoring and anomaly detection
 - Operational action recommendations
+- Low Stuck SKU notification
+- Stock/sales level Anomaly Detection
 
 ## Monthly Report
 - Consolidated monthly business performance
@@ -250,6 +289,17 @@ env_name/bin/activate
 ```bash
 pip install -r requirements.txt
 ```
+## Monitoring Setup
+
+```bash
+chmod +x install_monitoring.sh
+./install_monitoring.sh
+```
+
+#### Services:
+
+- Grafana → ```bash http://localhost:3000```
+- Prometheus → ```bash http://localhost:9090```
 
 ### Infrastructure & Deployment
 #### Containerized ETL (Docker + Airflow)
@@ -284,7 +334,7 @@ http://localhost:8080
 ## Observability & Reliability
 #### Logging
 #### Logs are generated for:
-- ETL execution (Airflow logs)
+- ETL execution
 - Report generation
 - Email delivery
 - WhatsApp automation
@@ -314,6 +364,60 @@ http://localhost:8080
 | Node Exporter | Infrastructure metrics      |
 | Grafana       | Visualization dashboards    |
 
+### Metrics Coverage
+- Pipeline Health
+- Task success/failure
+- Execution time
+- Data validation failures (ETL-level data quality issues)
+
+### Database
+- Query latency
+- Retry tracking
+- Failures
+
+### LLM
+- Latency
+- Success rate
+- Rate limits
+- Fallback usage
+
+### Reports
+- Per-store success/failure
+- Generation time
+
+### Notifications
+- WhatsApp success/failure
+- Email delivery tracking
+
+### Inventory
+- Low stock SKUs
+- Negative stock SKUs
+
+### Financial
+- RTV volume
+- RTV value
+
+### Metrics Flow
+- Scripts → Pushgateway
+- Prometheus scrapes metrics
+- Grafana visualizes dashboards
+
+## Reliability
+#### Determinism
+- Idempotent writes
+- Controlled execution windows
+- Snapshot-backed analytics
+
+#### Retry Strategy
+- DB retries tracked
+- API failures isolated
+
+## Design Principles
+- Deterministic analytics > heuristic outputs
+- LLM as rendering layer (not decision engine)
+- Observability-first architecture
+- Minimal operational dependency
+- Clear separation of concerns
 
 ## CI/Automation
 ### GitHub Actions are configured for:
