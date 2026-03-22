@@ -47,7 +47,8 @@ jobs:
           pytest tests/ \
             -v \
             --tb=short \
-            --cov=llm_recommender \
+            --cov=. \
+            --cov-config=.coveragerc \
             --cov-report=term-missing \
             --cov-report=xml \
             --cov-fail-under=35
