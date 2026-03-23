@@ -141,10 +141,10 @@ R --> U
 |---|---|---|
 | Orchestration | Apache Airflow | DAG scheduling, retries, dependency management |
 | Data | PostgreSQL | Analytics storage, snapshot persistence |
-| Intelligence | Python — Pandas | KPI computation, trend detection, risk scoring |
-| ETL Engine | PySpark (local / cluster) | Data ingestion, transformation, validation, bulk writes |
+| ETL & Transform | PySpark (local / cluster) | Data ingestion, transformation, validation, bulk writes |
+| Intelligence | Python — PySpark + Pandas | KPI computation, trend detection, risk scoring |
 | LLM | Groq + Ollama | Structured recommendation generation |
-| Reporting | Python — pdfkit | PDF report generation per store |
+| Reporting | PySpark + Python — pdfkit | PySpark aggregations, PDF report generation per store |
 | Distribution | SMTP + WhatsApp Business API | Email and WhatsApp delivery |
 | Inventory | REST API | Stock and RTV data ingestion |
 | Observability | Prometheus + Grafana | Metrics, dashboards, alerting |
@@ -253,7 +253,7 @@ The LLM layer is a **rendering layer, not a decision engine**. It receives pre-c
 - Growth percentage with conditional formatting
 
 ### Weekly Report
-- WoW revenue, quantity, and margin comparison
+- WoW revenue, quantity, and margin comparison — aggregations powered by PySpark
 - Risk scoring and anomaly detection per store
 - LLM-generated action recommendations (brand, category, product)
 - Current stock column injected from live stock CSV
@@ -261,7 +261,7 @@ The LLM layer is a **rendering layer, not a decision engine**. It receives pre-c
 - RTV (Return to Vendor) summary if applicable
 
 ### Monthly Report
-- MoM consolidated performance
+- MoM consolidated performance — aggregations powered by PySpark
 - Trend-aware intelligence insights
 - Strategic performance summary
 
@@ -379,11 +379,26 @@ The ETL pipeline (`etl_pip.py`) and aggregation layer (`agg_insert.py`) are full
 
 ### What Runs on PySpark
 
+**ETL Pipeline (`etl_pip.py` + `agg_insert.py`)**
 - **Schema validation** — column presence checks, row-level filter rules, and empty DataFrame guards all run as Spark DataFrame operations
 - **Transform** — all type casting, date parsing (multi-format), string cleaning, and column selection run as distributed Spark transformations
 - **Aggregations** — all 4 aggregate tables (brand, store, category, product) computed via `groupBy().agg()` using `countDistinct`, `sum`, and `round`
 - **Database writes** — all inserts to PostgreSQL use Spark JDBC, replacing `psycopg2.extras.execute_values`
 - **Idempotency deletes** — still handled via `psycopg2` before the Spark write, inside the same transaction boundary
+
+**Weekly Report (`weekly_reports.py`)**
+- **Data fetch** — store's 7-day window loaded from PostgreSQL via Spark JDBC subquery pushdown; only relevant rows transferred
+- **Comparison computation** — current week vs previous 2-week average computed in Spark using exact week boundary logic (exclusive lower bound, inclusive upper bound matching original SQL)
+- **Brand, category, product aggregations** — `groupBy().agg()` with `sum`, `round`, `coalesce`; per-row profit margin computed before `avg()`
+- **Total financials** — total sales, cost, profit, and average profit margin all computed in Spark
+- **Stock injection, LLM calls, RTV insights, charts, PDF** — remain in Pandas/Python (operate on local CSVs and rendered output, no Spark benefit)
+
+**Monthly Report (`monthly_reports.py`)**
+- **Data fetch** — store's full calendar month loaded from PostgreSQL via Spark JDBC subquery pushdown
+- **Comparison computation** — current month vs previous 3-month average computed in Spark; always divides by 3.0 matching original SQL exactly
+- **Brand, category, product aggregations** — `groupBy().agg()` with contribution % and profit margin; cached DataFrame reused across all 3 aggregations
+- **Total financials** — total sales, cost, profit, and average profit margin all computed in Spark
+- **LLM calls, charts, PDF** — remain in Pandas/Python
 
 ### Two Modes — Switch with One Line
 
@@ -401,9 +416,9 @@ The same pattern applies to the JDBC write blocks — `numPartitions=1` for sing
 
 ### How to Switch to Distributed
 
-**Step 1** — In both `etl_pip.py` and `agg_insert.py`, comment out the MODE 1 `get_spark()` block and uncomment MODE 2.
+**Step 1** — In `etl_pip.py`, `agg_insert.py`, `weekly_reports.py`, and `monthly_reports.py`, comment out the MODE 1 `get_spark()` block and uncomment MODE 2.
 
-**Step 2** — In both files, comment out the MODE 1 JDBC write block inside `load_to_postgres_bulk()` / `write_to_postgres()` and uncomment MODE 2.
+**Step 2** — In `etl_pip.py` and `agg_insert.py`, comment out the MODE 1 JDBC write block inside `load_to_postgres_bulk()` / `write_to_postgres()` and uncomment MODE 2.
 
 **Step 3** — Add these variables to your `.env` file:
 
@@ -414,7 +429,7 @@ SPARK_EXECUTOR_CORES=2
 SPARK_NUM_EXECUTORS=4
 ```
 
-That is the complete switch. All business logic, idempotency, schema validation, Ho Marlboro exclusion, and credential handling remain identical in both modes.
+That is the complete switch. All business logic, idempotency, schema validation, Ho Marlboro exclusion, stock injection, LLM calls, and credential handling remain identical in both modes.
 
 ### Why PySpark and Not Pandas
 
