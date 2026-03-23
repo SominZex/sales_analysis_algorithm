@@ -47,9 +47,67 @@ def delete_existing_aggregates_for_dates(cur, dates: list):
             print(f"  No existing rows found in {table} for those dates — clean insert.")
 
 
+# ── Columns required by agg_insert to build all 4 aggregate tables ────────────
+AGG_REQUIRED_COLUMNS = [
+    "invoice", "orderDate", "totalProductPrice", "quantity",
+    "brandName", "storeName", "subCategoryOf", "productName"
+]
+
+def validate_agg_input(df: pd.DataFrame) -> None:
+    """
+    Validate that the DataFrame passed to load_aggregates_to_postgres
+    contains all columns needed for groupby aggregations.
+    Raises ValueError immediately if any are missing — prevents a silent
+    KeyError mid-aggregation.
+    """
+    print("\n" + "=" * 60)
+    print("AGG INPUT SCHEMA VALIDATION")
+    print("=" * 60)
+
+    missing_cols = [c for c in AGG_REQUIRED_COLUMNS if c not in df.columns]
+    if missing_cols:
+        raise ValueError(
+            f"AGG SCHEMA ERROR: Missing required columns for aggregation:\n"
+            f"  {missing_cols}\n"
+            f"  Available columns: {df.columns.tolist()}"
+        )
+    print(f"✓ All {len(AGG_REQUIRED_COLUMNS)} required agg columns present.")
+
+    # Check totalProductPrice has at least some numeric data
+    numeric_check = pd.to_numeric(df['totalProductPrice'], errors='coerce')
+    valid_price_count = numeric_check.notna().sum()
+    if valid_price_count == 0:
+        raise ValueError(
+            "AGG SCHEMA ERROR: 'totalProductPrice' has no valid numeric values — "
+            "aggregations would produce empty results. Aborting."
+        )
+    print(f"✓ 'totalProductPrice' has {valid_price_count} valid numeric values.")
+
+    # Check orderDate has valid dates
+    valid_date_count = df['orderDate'].dropna().shape[0]
+    if valid_date_count == 0:
+        raise ValueError(
+            "AGG SCHEMA ERROR: 'orderDate' has no valid values — "
+            "aggregations cannot be grouped by date. Aborting."
+        )
+    print(f"✓ 'orderDate' has {valid_date_count} non-null values.")
+
+    if df.empty:
+        raise ValueError(
+            "AGG SCHEMA ERROR: DataFrame is empty — nothing to aggregate. Aborting."
+        )
+
+    print("✓ Agg input validation passed.")
+    print("=" * 60 + "\n")
+
+
 def load_aggregates_to_postgres(df: pd.DataFrame):
     conn = None
     try:
+        # ── Schema validation: fail fast before any DB work ───────────────────
+        validate_agg_input(df)
+        # ─────────────────────────────────────────────────────────────────────
+
         df['totalProductPrice'] = pd.to_numeric(df['totalProductPrice'], errors='coerce')
         df = df[df['totalProductPrice'].notna()]
 
@@ -94,11 +152,11 @@ def load_aggregates_to_postgres(df: pd.DataFrame):
 
         print("Connecting to database...")
         conn = psycopg2.connect(
-            host="74.225.249.155",
-            port="5432",
-            database="sales_data",
-            user="app_user",
-            password="access_app_3301"
+            host=require_env("DB_HOST"),
+            port=int(os.getenv("DB_PORT", 5432)),
+            database=require_env("DB_NAME"),
+            user=require_env("DB_USER"),
+            password=require_env("DB_PASSWORD"),
         )
         cur = conn.cursor()
 
