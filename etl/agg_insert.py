@@ -6,6 +6,10 @@ import time
 import os
 from dotenv import load_dotenv
 
+from pyspark.sql import SparkSession
+from pyspark.sql import functions as F
+from pyspark.sql.types import DoubleType, StringType
+
 load_dotenv()
 
 def require_env(name: str) -> str:
@@ -15,12 +19,97 @@ def require_env(name: str) -> str:
     return value
 
 
-# Column names in DB (all lowercase)
-POSTGRES_COLUMNS_BRAND = ["brandname", "nooforders", "sales", "aov", "orderdate"]
-POSTGRES_COLUMNS_STORE = ["storename", "nooforder", "sales", "aov", "orderdate"]
-POSTGRES_COLUMNS_CATEGORY = ["subcategoryof", "sales", "orderdate"]
-POSTGRES_COLUMNS_PRODUCT = ["productname", "nooforders", "sales", "quantitysold", "orderdate"]
+JDBC_URL = (
+    f"jdbc:postgresql://{require_env('DB_HOST')}:"
+    f"{os.getenv('DB_PORT', 5432)}/{require_env('DB_NAME')}"
+)
 
+JDBC_PROPERTIES = {
+    "user": require_env("DB_USER"),
+    "password": require_env("DB_PASSWORD"),
+    "driver": "org.postgresql.Driver"
+}
+
+DB_CONFIG = {
+    "host": require_env("DB_HOST"),
+    "port": int(os.getenv("DB_PORT", 5432)),
+    "database": require_env("DB_NAME"),
+    "user": require_env("DB_USER"),
+    "password": require_env("DB_PASSWORD"),
+}
+
+
+# =============================================================================
+# SPARK SESSION
+# -----------------------------------------------------------------------------
+# TWO MODES — only one block should be active at a time.
+#
+# MODE 1 — SINGLE NODE (active by default)
+#   Runs entirely on this VM. No cluster needed.
+#
+# MODE 2 — DISTRIBUTED CLUSTER (commented out)
+#   Uncomment and comment out MODE 1 when ready to scale.
+#   Required .env variables:
+#     SPARK_MASTER_URL        e.g. spark://10.0.0.1:7077 | yarn
+#     SPARK_EXECUTOR_MEMORY   e.g. 4g
+#     SPARK_EXECUTOR_CORES    e.g. 2
+#     SPARK_NUM_EXECUTORS     e.g. 4
+# =============================================================================
+
+# -----------------------------------------------------------------------------
+# MODE 1 — SINGLE NODE  ✅ ACTIVE
+# -----------------------------------------------------------------------------
+def get_spark() -> SparkSession:
+    """
+    Reuses existing Spark session if already started by etl_pip.py.
+    Falls back to creating a new local session if running standalone.
+    """
+    return (
+        SparkSession.builder
+        .appName("SalesAggregates")
+        .master("local[*]")
+        .config("spark.jars.packages", "org.postgresql:postgresql:42.6.0")
+        .config("spark.sql.session.timeZone", "UTC")
+        .config("spark.driver.memory", "2g")
+        .getOrCreate()
+    )
+
+# -----------------------------------------------------------------------------
+# MODE 2 — DISTRIBUTED CLUSTER  💤 COMMENTED OUT
+# To switch: comment out MODE 1 above and uncomment the block below.
+# -----------------------------------------------------------------------------
+# def get_spark() -> SparkSession:
+#     """
+#     Distributed Spark session — connects to an external cluster.
+#     Reuses existing session if already started by etl_pip.py.
+#     Supports: Spark Standalone, YARN, Databricks, EMR, GCP Dataproc.
+#
+#     Required .env variables:
+#       SPARK_MASTER_URL        e.g. spark://10.0.0.1:7077 | yarn
+#       SPARK_EXECUTOR_MEMORY   e.g. 4g
+#       SPARK_EXECUTOR_CORES    e.g. 2
+#       SPARK_NUM_EXECUTORS     e.g. 4
+#     """
+#     return (
+#         SparkSession.builder
+#         .appName("SalesAggregates")
+#         .master(require_env("SPARK_MASTER_URL"))
+#         .config("spark.jars.packages", "org.postgresql:postgresql:42.6.0")
+#         .config("spark.sql.session.timeZone", "UTC")
+#         .config("spark.executor.memory",    os.getenv("SPARK_EXECUTOR_MEMORY", "4g"))
+#         .config("spark.executor.cores",     os.getenv("SPARK_EXECUTOR_CORES",  "2"))
+#         .config("spark.executor.instances", os.getenv("SPARK_NUM_EXECUTORS",   "4"))
+#         .config("spark.sql.shuffle.partitions",     "200")
+#         .config("spark.default.parallelism",        "200")
+#         .config("spark.network.timeout",            "600s")
+#         .config("spark.executor.heartbeatInterval", "60s")
+#         .getOrCreate()
+#     )
+
+
+# =============================================================================
+# IDEMPOTENCY  (psycopg2 — runs before Spark JDBC writes)
+# =============================================================================
 
 def delete_existing_aggregates_for_dates(cur, dates: list):
     """
@@ -47,35 +136,38 @@ def delete_existing_aggregates_for_dates(cur, dates: list):
             print(f"  No existing rows found in {table} for those dates — clean insert.")
 
 
-# ── Columns required by agg_insert to build all 4 aggregate tables ────────────
+# =============================================================================
+# AGG INPUT SCHEMA VALIDATION  (PySpark)
+# =============================================================================
+
 AGG_REQUIRED_COLUMNS = [
     "invoice", "orderDate", "totalProductPrice", "quantity",
     "brandName", "storeName", "subCategoryOf", "productName"
 ]
 
-def validate_agg_input(df: pd.DataFrame) -> None:
+def validate_agg_input(spark_df) -> None:
     """
-    Validate that the DataFrame passed to load_aggregates_to_postgres
-    contains all columns needed for groupby aggregations.
-    Raises ValueError immediately if any are missing — prevents a silent
-    KeyError mid-aggregation.
+    Validate that the Spark DataFrame contains all columns needed
+    for groupBy aggregations. Raises ValueError immediately if any are missing.
     """
     print("\n" + "=" * 60)
-    print("AGG INPUT SCHEMA VALIDATION")
+    print("AGG INPUT SCHEMA VALIDATION  (PySpark)")
     print("=" * 60)
 
-    missing_cols = [c for c in AGG_REQUIRED_COLUMNS if c not in df.columns]
+    missing_cols = [c for c in AGG_REQUIRED_COLUMNS if c not in spark_df.columns]
     if missing_cols:
         raise ValueError(
             f"AGG SCHEMA ERROR: Missing required columns for aggregation:\n"
             f"  {missing_cols}\n"
-            f"  Available columns: {df.columns.tolist()}"
+            f"  Available columns: {spark_df.columns}"
         )
     print(f"✓ All {len(AGG_REQUIRED_COLUMNS)} required agg columns present.")
 
-    # Check totalProductPrice has at least some numeric data
-    numeric_check = pd.to_numeric(df['totalProductPrice'], errors='coerce')
-    valid_price_count = numeric_check.notna().sum()
+    valid_price_count = (
+        spark_df
+        .filter(F.col("totalProductPrice").cast(DoubleType()).isNotNull())
+        .count()
+    )
     if valid_price_count == 0:
         raise ValueError(
             "AGG SCHEMA ERROR: 'totalProductPrice' has no valid numeric values — "
@@ -83,8 +175,7 @@ def validate_agg_input(df: pd.DataFrame) -> None:
         )
     print(f"✓ 'totalProductPrice' has {valid_price_count} valid numeric values.")
 
-    # Check orderDate has valid dates
-    valid_date_count = df['orderDate'].dropna().shape[0]
+    valid_date_count = spark_df.filter(F.col("orderDate").isNotNull()).count()
     if valid_date_count == 0:
         raise ValueError(
             "AGG SCHEMA ERROR: 'orderDate' has no valid values — "
@@ -92,7 +183,7 @@ def validate_agg_input(df: pd.DataFrame) -> None:
         )
     print(f"✓ 'orderDate' has {valid_date_count} non-null values.")
 
-    if df.empty:
+    if spark_df.count() == 0:
         raise ValueError(
             "AGG SCHEMA ERROR: DataFrame is empty — nothing to aggregate. Aborting."
         )
@@ -101,182 +192,228 @@ def validate_agg_input(df: pd.DataFrame) -> None:
     print("=" * 60 + "\n")
 
 
-def load_aggregates_to_postgres(df: pd.DataFrame):
+# =============================================================================
+# SPARK JDBC WRITE HELPER
+# -----------------------------------------------------------------------------
+# TWO MODES — only one write block should be active at a time.
+#
+# MODE 1 — SINGLE NODE (active): numPartitions=1, sequential write
+# MODE 2 — DISTRIBUTED (commented): parallel write from executor nodes
+# =============================================================================
+
+def write_to_postgres(spark_df, table: str, row_label: str):
+    """Write a Spark DataFrame to a PostgreSQL table via JDBC."""
+    count = spark_df.count()
+    if count == 0:
+        print(f"No {row_label} data to insert")
+        return
+
+    # ---------------------------------------------------------
+    # MODE 1 — SINGLE NODE  ✅ ACTIVE
+    # Sequential write from driver. Safe for single VM.
+    # ---------------------------------------------------------
+    (
+        spark_df.write
+        .format("jdbc")
+        .option("url", JDBC_URL)
+        .option("dbtable", table)
+        .option("user", JDBC_PROPERTIES["user"])
+        .option("password", JDBC_PROPERTIES["password"])
+        .option("driver", JDBC_PROPERTIES["driver"])
+        .option("batchsize", 1000)
+        .option("numPartitions", 1)
+        .mode("append")
+        .save()
+    )
+
+    # ---------------------------------------------------------
+    # MODE 2 — DISTRIBUTED  💤 COMMENTED OUT
+    # Parallel write from executor nodes.
+    # Uncomment when running on a cluster.
+    # numPartitions opens parallel DB connections — tune to
+    # match your PostgreSQL max_connections setting.
+    # ---------------------------------------------------------
+    # (
+    #     spark_df
+    #     .repartition(int(os.getenv("SPARK_NUM_EXECUTORS", "4")))
+    #     .write
+    #     .format("jdbc")
+    #     .option("url", JDBC_URL)
+    #     .option("dbtable", table)
+    #     .option("user", JDBC_PROPERTIES["user"])
+    #     .option("password", JDBC_PROPERTIES["password"])
+    #     .option("driver", JDBC_PROPERTIES["driver"])
+    #     .option("batchsize", 5000)
+    #     .option("numPartitions", int(os.getenv("SPARK_NUM_EXECUTORS", "4")))
+    #     .mode("append")
+    #     .save()
+    # )
+
+    print(f"✓ Inserted {count} rows into {table} ({row_label})")
+
+
+# =============================================================================
+# MAIN AGGREGATE LOADER
+# =============================================================================
+
+def load_aggregates_to_postgres(pandas_df: pd.DataFrame):
+    """
+    Accepts a Pandas DataFrame (passed from etl_pip.py),
+    converts it to Spark, runs all aggregations using PySpark,
+    and writes results to PostgreSQL via JDBC.
+    All existing logic preserved: Ho Marlboro exclusion, idempotency, validation.
+    """
     conn = None
     try:
-        # ── Schema validation: fail fast before any DB work ───────────────────
-        validate_agg_input(df)
-        # ─────────────────────────────────────────────────────────────────────
+        # ── Quick Pandas schema check before starting Spark ───────────────────
+        missing = [c for c in AGG_REQUIRED_COLUMNS if c not in pandas_df.columns]
+        if missing:
+            raise ValueError(f"AGG SCHEMA ERROR: Missing columns: {missing}")
 
-        df['totalProductPrice'] = pd.to_numeric(df['totalProductPrice'], errors='coerce')
-        df = df[df['totalProductPrice'].notna()]
+        # ── Pre-process totalProductPrice ─────────────────────────────────────
+        pandas_df['totalProductPrice'] = pd.to_numeric(pandas_df['totalProductPrice'], errors='coerce')
+        pandas_df = pandas_df[pandas_df['totalProductPrice'].notna()]
 
-        # CRITICAL: EXCLUDE Ho Marlboro store from aggregations ONLY
+        # ── CRITICAL: EXCLUDE Ho Marlboro store from aggregations ─────────────
         print(f"\n{'='*60}")
         print(f"EXCLUDING Ho Marlboro FROM AGGREGATE TABLES")
         print(f"{'='*60}")
-        print(f"Total rows in billing_data (including Ho Marlboro): {len(df)}")
+        print(f"Total rows in billing_data (including Ho Marlboro): {len(pandas_df)}")
 
-        # Check if storeName column exists
-        if 'storeName' not in df.columns:
+        if 'storeName' not in pandas_df.columns:
             print("ERROR: 'storeName' column not found in DataFrame!")
-            print(f"Available columns: {df.columns.tolist()}")
+            print(f"Available columns: {pandas_df.columns.tolist()}")
             return
 
-        # Show unique store names before filtering
-        unique_stores_all = df['storeName'].unique()
-        ho_marlboro_count = len(df[df['storeName'] == 'Ho Marlboro'])
+        ho_marlboro_count = len(pandas_df[pandas_df['storeName'] == 'Ho Marlboro'])
         print(f"Ho Marlboro rows in source data: {ho_marlboro_count}")
 
-        # Filter out Ho Marlboro for aggregations
-        df_for_aggregates = df[df['storeName'] != 'Ho Marlboro'].copy()
+        pandas_df_agg = pandas_df[pandas_df['storeName'] != 'Ho Marlboro'].copy()
 
-        # Show results
-        rows_excluded = len(df) - len(df_for_aggregates)
+        rows_excluded = len(pandas_df) - len(pandas_df_agg)
         print(f"Rows excluded from aggregates: {rows_excluded}")
-        print(f"Rows used for aggregates: {len(df_for_aggregates)}")
+        print(f"Rows used for aggregates: {len(pandas_df_agg)}")
 
-        if 'Ho Marlboro' in df_for_aggregates['storeName'].values:
+        if 'Ho Marlboro' in pandas_df_agg['storeName'].values:
             print("❌ ERROR: Ho Marlboro still in aggregates dataframe!")
             return
         else:
             print("✓ Ho Marlboro successfully excluded from aggregates")
         print(f"{'='*60}\n")
 
-        # Use filtered dataframe for all aggregations
-        df_agg = df_for_aggregates
-
-        if len(df_agg) == 0:
+        if len(pandas_df_agg) == 0:
             print("WARNING: No data remaining after filtering!")
             return
 
-        print("Connecting to database...")
-        conn = psycopg2.connect(
-            host=require_env("DB_HOST"),
-            port=int(os.getenv("DB_PORT", 5432)),
-            database=require_env("DB_NAME"),
-            user=require_env("DB_USER"),
-            password=require_env("DB_PASSWORD"),
-        )
-        cur = conn.cursor()
+        # ── Convert filtered Pandas → Spark ───────────────────────────────────
+        print("Initialising Spark session for aggregations...")
+        spark    = get_spark()
+        spark_df = spark.createDataFrame(pandas_df_agg)
 
-        # --- IDEMPOTENCY: Delete existing aggregate rows for the same dates before inserting ---
-        dates_in_data = df_agg['orderDate'].dropna().unique().tolist()
+        # ── Full PySpark schema validation ────────────────────────────────────
+        validate_agg_input(spark_df)
+
+        # ── IDEMPOTENCY: Delete existing rows for these dates ─────────────────
+        dates_in_data = [
+            r["orderDate"]
+            for r in spark_df.select("orderDate").distinct().collect()
+            if r["orderDate"] is not None
+        ]
+        print("Connecting to database for idempotency check...")
+        conn = psycopg2.connect(**DB_CONFIG)
+        cur  = conn.cursor()
         delete_existing_aggregates_for_dates(cur, dates_in_data)
-        # --------------------------------------------------------------------------------------
-
-        # -------- Brand Sales (Ho Marlboro excluded) --------
-        print("\nProcessing Brand Sales...")
-        brand_df = df_agg.groupby(['brandName', 'orderDate'], as_index=False).agg(
-            nooforders=('invoice', 'nunique'),
-            sales=('totalProductPrice', 'sum')
-        )
-        brand_df['sales'] = pd.to_numeric(brand_df['sales'], errors='coerce')
-        brand_df['aov'] = (brand_df['sales'] / brand_df['nooforders']).round(2)
-        brand_df.rename(columns={'brandName': 'brandname', 'orderDate': 'orderdate'}, inplace=True)
-
-        brand_cols = ",".join([f'"{c}"' for c in POSTGRES_COLUMNS_BRAND])
-        brand_tuples = [tuple(row) for row in brand_df[POSTGRES_COLUMNS_BRAND].values]
-
-        if len(brand_tuples) > 0:
-            psycopg2.extras.execute_values(
-                cur,
-                f'INSERT INTO brand_sales ({brand_cols}) VALUES %s',
-                brand_tuples,
-                template=None,
-                page_size=1000
-            )
-            print(f"✓ Inserted {len(brand_tuples)} rows into brand_sales (Ho Marlboro excluded)")
-        else:
-            print("No brand data to insert")
-
-        # -------- Store Sales (Ho Marlboro excluded) --------
-        print("\nProcessing Store Sales...")
-        store_df = df_agg.groupby(['storeName', 'orderDate'], as_index=False).agg(
-            nooforder=('invoice', 'nunique'),
-            sales=('totalProductPrice', 'sum')
-        )
-        store_df['sales'] = pd.to_numeric(store_df['sales'], errors='coerce')
-        store_df['aov'] = (store_df['sales'] / store_df['nooforder']).round(2)
-        store_df.rename(columns={'storeName': 'storename', 'orderDate': 'orderdate'}, inplace=True)
-
-        # CRITICAL VERIFICATION: Ensure Ho Marlboro is NOT in store aggregates
-        if 'Ho Marlboro' in store_df['storename'].values:
-            print("❌ CRITICAL ERROR: Ho Marlboro found in store_sales aggregates!")
-            print(f"Stores in aggregate: {sorted(store_df['storename'].unique())}")
-            conn.rollback()
-            cur.close()
-            conn.close()
-            return
-        else:
-            print(f"✓ Verified: Ho Marlboro NOT in store aggregates")
-            print(f"  Stores included: {sorted(store_df['storename'].unique())}")
-
-        store_cols = ",".join([f'"{c}"' for c in POSTGRES_COLUMNS_STORE])
-        store_tuples = [tuple(row) for row in store_df[POSTGRES_COLUMNS_STORE].values]
-
-        if len(store_tuples) > 0:
-            psycopg2.extras.execute_values(
-                cur,
-                f'INSERT INTO store_sales ({store_cols}) VALUES %s',
-                store_tuples,
-                template=None,
-                page_size=1000
-            )
-            print(f"✓ Inserted {len(store_tuples)} rows into store_sales")
-        else:
-            print("No store data to insert")
-
-        # -------- Category Sales (Ho Marlboro excluded) --------
-        print("\nProcessing Category Sales...")
-        category_df = df_agg.groupby(['subCategoryOf', 'orderDate'], as_index=False).agg(
-            nooforder=('invoice', 'nunique'),
-            sales=('totalProductPrice', 'sum')
-        )
-        category_df.rename(columns={'subCategoryOf': 'subcategoryof', 'orderDate': 'orderdate'}, inplace=True)
-
-        category_cols = ",".join([f'"{c}"' for c in POSTGRES_COLUMNS_CATEGORY])
-        category_tuples = [tuple(row) for row in category_df[POSTGRES_COLUMNS_CATEGORY].values]
-
-        if len(category_tuples) > 0:
-            psycopg2.extras.execute_values(
-                cur,
-                f'INSERT INTO category_sales ({category_cols}) VALUES %s',
-                category_tuples,
-                template=None,
-                page_size=1000
-            )
-            print(f"✓ Inserted {len(category_tuples)} rows into category_sales (Ho Marlboro excluded)")
-        else:
-            print("No category data to insert")
-
-        # -------- Product Sales (Ho Marlboro excluded) --------
-        print("\nProcessing Product Sales...")
-        product_df = df_agg.groupby(['productName', 'orderDate'], as_index=False).agg(
-            nooforders=('invoice', 'nunique'),
-            sales=('totalProductPrice', 'sum'),
-            quantitysold=('quantity', 'sum')
-        )
-        product_df.rename(columns={'productName': 'productname', 'orderDate': 'orderdate'}, inplace=True)
-
-        product_cols = ",".join([f'"{c}"' for c in POSTGRES_COLUMNS_PRODUCT])
-        product_tuples = [tuple(row) for row in product_df[POSTGRES_COLUMNS_PRODUCT].values]
-
-        if len(product_tuples) > 0:
-            psycopg2.extras.execute_values(
-                cur,
-                f'INSERT INTO product_sales ({product_cols}) VALUES %s',
-                product_tuples,
-                template=None,
-                page_size=1000
-            )
-            print(f"✓ Inserted {len(product_tuples)} rows into product_sales (Ho Marlboro excluded)")
-        else:
-            print("No product data to insert")
-
         conn.commit()
         cur.close()
         conn.close()
+        conn = None
+        # ─────────────────────────────────────────────────────────────────────
+
+        # Ensure totalProductPrice is DoubleType in Spark
+        spark_df = spark_df.withColumn("totalProductPrice", F.col("totalProductPrice").cast(DoubleType()))
+
+        # ── Brand Sales ───────────────────────────────────────────────────────
+        print("\nProcessing Brand Sales...")
+        brand_df = (
+            spark_df
+            .groupBy("brandName", "orderDate")
+            .agg(
+                F.countDistinct("invoice").alias("nooforders"),
+                F.sum("totalProductPrice").alias("sales")
+            )
+            .withColumn("sales", F.col("sales").cast(DoubleType()))
+            .withColumn("aov", F.round(F.col("sales") / F.col("nooforders"), 2))
+            .withColumnRenamed("brandName", "brandname")
+            .withColumnRenamed("orderDate", "orderdate")
+            .select("brandname", "nooforders", "sales", "aov", "orderdate")
+        )
+
+        # CRITICAL VERIFICATION: Ensure Ho Marlboro is NOT in brand aggregates
+        ho_check = brand_df.filter(F.col("brandname") == "Ho Marlboro").count()
+        if ho_check > 0:
+            raise ValueError("❌ CRITICAL: Ho Marlboro found in brand_sales aggregates!")
+
+        write_to_postgres(brand_df, "brand_sales", "Ho Marlboro excluded")
+
+        # ── Store Sales ───────────────────────────────────────────────────────
+        print("\nProcessing Store Sales...")
+        store_df = (
+            spark_df
+            .groupBy("storeName", "orderDate")
+            .agg(
+                F.countDistinct("invoice").alias("nooforder"),
+                F.sum("totalProductPrice").alias("sales")
+            )
+            .withColumn("sales", F.col("sales").cast(DoubleType()))
+            .withColumn("aov", F.round(F.col("sales") / F.col("nooforder"), 2))
+            .withColumnRenamed("storeName", "storename")
+            .withColumnRenamed("orderDate", "orderdate")
+            .select("storename", "nooforder", "sales", "aov", "orderdate")
+        )
+
+        # CRITICAL VERIFICATION: Ensure Ho Marlboro is NOT in store aggregates
+        ho_check = store_df.filter(F.col("storename") == "Ho Marlboro").count()
+        if ho_check > 0:
+            print("❌ CRITICAL ERROR: Ho Marlboro found in store_sales aggregates!")
+            stores = [r["storename"] for r in store_df.select("storename").distinct().collect()]
+            print(f"Stores in aggregate: {sorted(stores)}")
+            raise ValueError("Ho Marlboro found in store aggregates — aborting.")
+        else:
+            stores = [r["storename"] for r in store_df.select("storename").distinct().collect()]
+            print(f"✓ Verified: Ho Marlboro NOT in store aggregates")
+            print(f"  Stores included: {sorted(stores)}")
+
+        write_to_postgres(store_df, "store_sales", "Ho Marlboro excluded")
+
+        # ── Category Sales ────────────────────────────────────────────────────
+        print("\nProcessing Category Sales...")
+        category_df = (
+            spark_df
+            .groupBy("subCategoryOf", "orderDate")
+            .agg(
+                F.sum("totalProductPrice").alias("sales")
+            )
+            .withColumnRenamed("subCategoryOf", "subcategoryof")
+            .withColumnRenamed("orderDate", "orderdate")
+            .select("subcategoryof", "sales", "orderdate")
+        )
+        write_to_postgres(category_df, "category_sales", "Ho Marlboro excluded")
+
+        # ── Product Sales ─────────────────────────────────────────────────────
+        print("\nProcessing Product Sales...")
+        product_df = (
+            spark_df
+            .groupBy("productName", "orderDate")
+            .agg(
+                F.countDistinct("invoice").alias("nooforders"),
+                F.sum("totalProductPrice").alias("sales"),
+                F.sum(F.col("quantity").cast(DoubleType())).alias("quantitysold")
+            )
+            .withColumnRenamed("productName", "productname")
+            .withColumnRenamed("orderDate", "orderdate")
+            .select("productname", "nooforders", "sales", "quantitysold", "orderdate")
+        )
+        write_to_postgres(product_df, "product_sales", "Ho Marlboro excluded")
 
         print(f"\n{'='*60}")
         print("✓ SUCCESS: All aggregate tables populated WITHOUT Ho Marlboro")

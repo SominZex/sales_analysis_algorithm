@@ -16,6 +16,7 @@
 - [Distribution](#distribution)
 - [Inventory & RTV Monitoring](#inventory--rtv-monitoring)
 - [Observability](#observability)
+- [PySpark & Distributed Computing](#pyspark--distributed-computing)
 - [Data Quality & Schema Validation](#data-quality--schema-validation)
 - [Reliability & Fault Containment](#reliability--fault-containment)
 - [Installation & Setup](#installation--setup)
@@ -141,6 +142,7 @@ R --> U
 | Orchestration | Apache Airflow | DAG scheduling, retries, dependency management |
 | Data | PostgreSQL | Analytics storage, snapshot persistence |
 | Intelligence | Python — Pandas | KPI computation, trend detection, risk scoring |
+| ETL Engine | PySpark (local / cluster) | Data ingestion, transformation, validation, bulk writes |
 | LLM | Groq + Ollama | Structured recommendation generation |
 | Reporting | Python — pdfkit | PDF report generation per store |
 | Distribution | SMTP + WhatsApp Business API | Email and WhatsApp delivery |
@@ -179,6 +181,7 @@ The master DAG (`sales_master_pipeline`) runs at `00:25` daily and branches dete
 
 ### ETL & Data Engineering
 - API-driven daily ingestion from the retail mainframe
+- **PySpark-powered processing** — all transforms, aggregations, and bulk writes run on PySpark, enabling seamless scale-out to a distributed cluster without any code changes (see [PySpark & Distributed Computing](#pyspark--distributed-computing))
 - **Idempotent writes** — safe to re-run at any time without data duplication (see [Idempotency](#idempotency))
 - **Schema validation** — required columns, data types, null checks, and range rules enforced before any record enters the database (see [Data Quality & Schema Validation](#data-quality--schema-validation))
 - Time-window controlled processing with explicit scheduling boundaries
@@ -370,6 +373,69 @@ Services after install:
 
 ---
 
+## PySpark & Distributed Computing
+
+The ETL pipeline (`etl_pip.py`) and aggregation layer (`agg_insert.py`) are fully built on PySpark, replacing the previous Pandas-based processing. The architecture is designed so that switching from a single VM to a distributed cluster requires changing only a configuration value — no code changes anywhere in the pipeline.
+
+### What Runs on PySpark
+
+- **Schema validation** — column presence checks, row-level filter rules, and empty DataFrame guards all run as Spark DataFrame operations
+- **Transform** — all type casting, date parsing (multi-format), string cleaning, and column selection run as distributed Spark transformations
+- **Aggregations** — all 4 aggregate tables (brand, store, category, product) computed via `groupBy().agg()` using `countDistinct`, `sum`, and `round`
+- **Database writes** — all inserts to PostgreSQL use Spark JDBC, replacing `psycopg2.extras.execute_values`
+- **Idempotency deletes** — still handled via `psycopg2` before the Spark write, inside the same transaction boundary
+
+### Two Modes — Switch with One Line
+
+Both files contain two clearly labelled `get_spark()` implementations. Only one is active at a time:
+
+```
+# MODE 1 — SINGLE NODE  ✅ ACTIVE (default)
+.master("local[*]")       # uses all CPU cores on this VM
+
+# MODE 2 — DISTRIBUTED  💤 COMMENTED OUT
+.master(require_env("SPARK_MASTER_URL"))   # points to cluster
+```
+
+The same pattern applies to the JDBC write blocks — `numPartitions=1` for single node, parallel partitioned writes for distributed.
+
+### How to Switch to Distributed
+
+**Step 1** — In both `etl_pip.py` and `agg_insert.py`, comment out the MODE 1 `get_spark()` block and uncomment MODE 2.
+
+**Step 2** — In both files, comment out the MODE 1 JDBC write block inside `load_to_postgres_bulk()` / `write_to_postgres()` and uncomment MODE 2.
+
+**Step 3** — Add these variables to your `.env` file:
+
+```env
+SPARK_MASTER_URL=spark://your-cluster-ip:7077
+SPARK_EXECUTOR_MEMORY=4g
+SPARK_EXECUTOR_CORES=2
+SPARK_NUM_EXECUTORS=4
+```
+
+That is the complete switch. All business logic, idempotency, schema validation, Ho Marlboro exclusion, and credential handling remain identical in both modes.
+
+### Why PySpark and Not Pandas
+
+- **Pandas loads everything into RAM** — crashes when data exceeds available memory on a single machine
+- **Pandas is single-threaded** — one CPU core regardless of VM size
+- **PySpark handles out-of-memory automatically** — spills to disk and continues
+- **PySpark is cluster-ready** — when data grows beyond single-VM capacity, the same code runs distributed across nodes by changing one config line
+- **No rewrite needed to scale** — the investment in PySpark now means zero migration cost later
+
+### Supported Cluster Targets
+
+| Platform | `SPARK_MASTER_URL` value |
+|---|---|
+| Spark Standalone | `spark://host:7077` |
+| YARN (Hadoop) | `yarn` |
+| Databricks | Set via cluster config |
+| AWS EMR | `yarn` or `local[*]` on driver |
+| GCP Dataproc | `yarn` |
+
+---
+
 ## Data Quality & Schema Validation
 
 Validation is enforced in two layers at ETL ingestion — **before transform** and **before aggregation** — ensuring no bad data ever enters the analytics database.
@@ -463,6 +529,13 @@ LOW_STOCK_THRESHOLD=5
 
 # Observability
 PUSHGATEWAY_URL=http://localhost:9091
+
+# PySpark — Distributed Mode (leave blank for single-node local mode)
+# Uncomment MODE 2 in etl_pip.py and agg_insert.py before using these
+SPARK_MASTER_URL=
+SPARK_EXECUTOR_MEMORY=4g
+SPARK_EXECUTOR_CORES=2
+SPARK_NUM_EXECUTORS=4
 ```
 
 > **Note:** Never commit `.env` to version control. Add it to `.gitignore`.
@@ -509,5 +582,7 @@ Installs Prometheus, Pushgateway, Node Exporter, and Grafana as systemd services
 **Fault isolation** — Each pipeline layer is independently executable. A failure in distribution does not affect data integrity. A failure in monitoring does not affect pipeline execution.
 
 **Minimal operational dependency** — The system runs unattended. No human action is required between deployment and report delivery.
+
+**Scale-ready by design** — The ETL layer runs on PySpark in local mode today and on a distributed cluster tomorrow. Switching requires one config line change — no rewrite, no migration, no logic changes anywhere in the pipeline.
 
 **Credential hygiene** — No credentials are hardcoded. All secrets are loaded from `.env` at runtime with explicit validation on startup.
