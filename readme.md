@@ -733,7 +733,6 @@ Installs Prometheus, Pushgateway, Node Exporter, and Grafana as systemd services
 ![DAG](https://github.com/user-attachments/assets/1f1d2b17-9f75-4413-9dfb-3ce48698807b)
 
 ---
-
 ## Design Principles
 
 **Deterministic analytics over heuristic outputs** — KPIs and risk signals are computed with explicit logic. The LLM never calculates; it only renders pre-computed facts into natural language.
