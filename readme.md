@@ -448,7 +448,7 @@ Airflow UI: `http://localhost:8080`
 ```
 airflow/
 └── dags/
-    └── sales_master_pipeline.py
+    └── auto_execute.py
 ```
 
 ### Monitoring (bare VM)
