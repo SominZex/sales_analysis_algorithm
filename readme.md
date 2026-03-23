@@ -19,6 +19,7 @@
 - [PySpark & Distributed Computing](#pyspark--distributed-computing)
 - [Data Quality & Schema Validation](#data-quality--schema-validation)
 - [Reliability & Fault Containment](#reliability--fault-containment)
+- [Airflow Orchestration](#airflow-orchestration)
 - [Installation & Setup](#installation--setup)
 - [Design Principles](#design-principles)
 
@@ -139,7 +140,7 @@ R --> U
 
 | Layer | Technology | Responsibility |
 |---|---|---|
-| Orchestration | Apache Airflow | DAG scheduling, retries, dependency management |
+| Orchestration | Apache Airflow (Docker) | DAG scheduling, retries, dependency management, task isolation |
 | Data | PostgreSQL | Analytics storage, snapshot persistence |
 | ETL & Transform | PySpark (local / cluster) | Data ingestion, transformation, validation, bulk writes |
 | Intelligence | Python — PySpark + Pandas | KPI computation, trend detection, risk scoring |
@@ -497,6 +498,144 @@ Runs at the start of aggregate processing, before any DB connection is opened.
 
 ---
 
+## Airflow Orchestration
+
+The entire pipeline is orchestrated by **Apache Airflow running in Docker** via the official `docker-compose` setup. Airflow handles scheduling, task dependency management, automatic retries, and execution history — the pipeline runs fully unattended after deployment.
+
+### Why Docker
+
+Running Airflow in Docker isolates it from the host Python environment and system dependencies. The ETL scripts, report generators, and alert senders run in their own process space, preventing dependency conflicts and making the setup reproducible across environments.
+
+### DAG Structure
+
+```
+airflow/
+├── docker-compose.yaml       # Official Airflow Docker Compose (with Postgres + Redis)
+├── .env                      # Airflow-specific env overrides (AIRFLOW_UID etc.)
+└── dags/
+    └── auto_execute.py       # Master DAG — full pipeline definition
+```
+
+The master DAG (`sales_master_pipeline`) is defined in `auto_execute.py` and contains all task dependencies, branching logic, and retry configuration.
+
+### Schedule
+
+The DAG runs at **00:25 daily** — after midnight to ensure the previous day's data is complete before ingestion begins.
+
+```python
+schedule_interval = "25 0 * * *"   # 00:25 every day
+```
+
+### Task Chain
+
+```
+etl_pip          → product_update → daily_analysis
+daily_analysis   → llm_layer      → wa_daily_summary
+wa_daily_summary → [weekly branch if Monday]
+wa_daily_summary → [monthly branch if 1st of month]
+```
+
+**Weekly branch (Mondays only):**
+```
+weekly_reports → weekly_llm → wa_weekly_summary → email_weekly
+```
+
+**Monthly branch (1st of month only):**
+```
+monthly_reports → email_monthly
+```
+
+All branching is deterministic — decided at DAG runtime based on `execution_date`.
+
+### Retry Configuration
+
+Each task is configured with automatic retries to handle transient failures:
+
+```python
+default_args = {
+    "retries": 3,
+    "retry_delay": timedelta(minutes=5),
+    "retry_exponential_backoff": True,
+    "max_retry_delay": timedelta(minutes=30),
+}
+```
+
+A failing task retries up to 3 times with exponential backoff before marking as failed and triggering a Grafana alert.
+
+### Task Isolation
+
+Each pipeline script (`etl_pip.py`, `weekly_reports.py`, `monthly_reports.py`, etc.) is called as a separate `BashOperator` or `PythonOperator` task. This means:
+- A failure in report generation does not prevent the next day's ETL from running
+- Each task has its own execution log visible in the Airflow UI
+- Tasks can be manually re-triggered individually from the UI without re-running the full pipeline
+
+### Airflow UI
+
+After startup, the Airflow web interface is available at `http://localhost:8080`.
+
+The UI provides:
+- Full DAG run history with per-task success/failure status
+- Task logs — stdout and stderr for every execution
+- Manual trigger — re-run any individual task or the full DAG
+- Pause/unpause — disable the schedule without stopping Docker
+- Graph view — visual representation of the full task dependency chain
+
+### Docker Services
+
+The `docker-compose.yaml` spins up the following containers:
+
+| Container | Role |
+|---|---|
+| `airflow-webserver` | Airflow UI on port 8080 |
+| `airflow-scheduler` | DAG scheduler and task trigger |
+| `airflow-worker` | Task execution (CeleryExecutor) |
+| `airflow-postgres` | Airflow metadata database |
+| `airflow-redis` | Celery message broker |
+
+### Starting Airflow
+
+```bash
+cd airflow
+
+# First-time initialisation — creates DB schema, default admin user
+docker compose up airflow-init
+
+# Start all services in background
+docker compose up -d
+
+# Check all containers are healthy
+docker compose ps
+
+# View scheduler logs
+docker compose logs -f airflow-scheduler
+
+# Stop all services
+docker compose down
+```
+
+### Accessing the UI
+
+```
+URL      : http://localhost:8080
+Username : airflow
+Password : airflow
+```
+
+Change the default password after first login via **Admin → Users**.
+
+### Connecting Airflow to the Pipeline
+
+The DAG runs scripts from the host filesystem via volume mounts defined in `docker-compose.yaml`. The pipeline `.env` file is passed into the Airflow containers as environment variables so all scripts have access to DB credentials, API keys, and configuration at runtime.
+
+```yaml
+# In docker-compose.yaml — volume mount for pipeline scripts
+volumes:
+  - /home/azureuser/etl:/opt/airflow/etl
+  - /home/azureuser/etl/.env:/opt/airflow/.env
+```
+
+---
+
 ## Installation & Setup
 
 ### Clone
@@ -556,17 +695,30 @@ SPARK_NUM_EXECUTORS=4
 > **Note:** Never commit `.env` to version control. Add it to `.gitignore`.
 
 ### Airflow (Docker)
+
+See [Airflow Orchestration](#airflow-orchestration) for the full setup, DAG structure, retry configuration, and UI guide.
+
 ```bash
 cd airflow
+
+# First-time setup
 docker compose up airflow-init
+
+# Start all services
 docker compose up -d
+
+# Verify all containers are running
+docker compose ps
 ```
-Airflow UI: `http://localhost:8080`
+
+Airflow UI: `http://localhost:8080` (default credentials: `airflow` / `airflow`)
 
 ```
 airflow/
+├── docker-compose.yaml
+├── .env
 └── dags/
-    └── auto_execute.py
+    └── auto_execute.py       # Master DAG — full pipeline definition
 ```
 
 ### Monitoring (bare VM)
@@ -599,5 +751,7 @@ Installs Prometheus, Pushgateway, Node Exporter, and Grafana as systemd services
 **Minimal operational dependency** — The system runs unattended. No human action is required between deployment and report delivery.
 
 **Scale-ready by design** — The ETL layer runs on PySpark in local mode today and on a distributed cluster tomorrow. Switching requires one config line change — no rewrite, no migration, no logic changes anywhere in the pipeline.
+
+**Orchestration as infrastructure** — Airflow runs in Docker, isolated from the host environment. Every pipeline task is independently retryable, independently loggable, and independently triggerable from the UI — without touching the underlying scripts.
 
 **Credential hygiene** — No credentials are hardcoded. All secrets are loaded from `.env` at runtime with explicit validation on startup.
