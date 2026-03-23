@@ -63,7 +63,7 @@ ROW_VALIDATION_RULES = [
 
 
 class CSVDownloader:
-    def __init__(self, base_url="https://api.example.in", username="user", password="pw"):
+    def __init__(self, base_url="https://api.example.in", username="username", password="pwd"):
         self.base_url = base_url
         self.username = username
         self.password = password

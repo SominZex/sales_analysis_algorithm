@@ -16,7 +16,7 @@
 - [Distribution](#distribution)
 - [Inventory & RTV Monitoring](#inventory--rtv-monitoring)
 - [Observability](#observability)
-- [Data Quality](#data-quality)
+- [Data Quality & Schema Validation](#data-quality--schema-validation)
 - [Reliability & Fault Containment](#reliability--fault-containment)
 - [Installation & Setup](#installation--setup)
 - [Design Principles](#design-principles)
@@ -30,6 +30,7 @@ This system is not a dashboard. It is an automated sales intelligence engine bui
 **What it does:**
 
 - Ingests daily sales data via API into a PostgreSQL analytics store
+- Validates schema and data quality before any record enters the database
 - Computes revenue, margin, growth, and risk signals deterministically
 - Generates LLM-grounded action recommendations constrained to pre-computed facts
 - Produces Daily, Weekly, and Monthly PDF reports per store
@@ -178,10 +179,10 @@ The master DAG (`sales_master_pipeline`) runs at `00:25` daily and branches dete
 
 ### ETL & Data Engineering
 - API-driven daily ingestion from the retail mainframe
-- Idempotent writes — safe to re-run without data duplication
+- **Idempotent writes** — safe to re-run at any time without data duplication (see [Idempotency](#idempotency))
+- **Schema validation** — required columns, data types, null checks, and range rules enforced before any record enters the database (see [Data Quality & Schema Validation](#data-quality--schema-validation))
 - Time-window controlled processing with explicit scheduling boundaries
-- Schema validation, null checks, range validation, and duplicate detection at ingestion
-- Critical validation failures halt the pipeline; non-critical anomalies are logged
+- Critical validation failures halt the pipeline; non-critical anomalies are logged and surfaced in Grafana
 
 ### Intelligence Engine
 - Revenue, quantity, margin, and contribution KPIs per store, brand, category, and product
@@ -369,31 +370,49 @@ Services after install:
 
 ---
 
-## Data Quality
+## Data Quality & Schema Validation
 
-Validation is enforced at ETL ingestion before any data enters the analytics database.
+Validation is enforced in two layers at ETL ingestion — **before transform** and **before aggregation** — ensuring no bad data ever enters the analytics database.
 
-| Check | Behaviour on failure |
-|---|---|
-| Schema validation (required fields, data types) | Record rejected, logged |
-| Null checks on critical fields (revenue, quantity) | Record rejected, logged |
-| Range validation (negative revenue, invalid margins) | Record rejected, logged |
-| Duplicate detection | Duplicate removed, logged |
-| API response integrity | Pipeline halted on critical failure |
+### Layer 1 — CSV Schema Validation (`etl_pip.py`)
 
-Non-critical anomalies are logged and surfaced in the observability layer. Critical failures halt pipeline execution and trigger failure alerts.
+Runs immediately after download, before any transformation begins.
+
+- **Required column check** — Verifies all fields essential to the pipeline are present in the downloaded CSV. If any are missing, the pipeline halts immediately with a clear error listing exactly which fields are absent and what is available — no silent nulls, no partial inserts.
+- **Negative revenue check** — Rows with a negative total price are flagged, counted, logged with sample values, and dropped before any data reaches the database.
+- **Invalid quantity check** — Rows where quantity is zero or negative are flagged as logically inconsistent and dropped with a logged report.
+- **Blank identifier check** — Rows missing the primary order identifier are dropped — records without a traceable key have no analytical value and can corrupt aggregations.
+- **Empty DataFrame guard** — If all rows are dropped during validation the pipeline halts with a clear message before any database connection is opened. Nothing is written if nothing is valid.
+
+### Layer 2 — Aggregate Input Validation (`agg_insert.py`)
+
+Runs at the start of aggregate processing, before any DB connection is opened.
+
+- **Aggregation dimension check** — Verifies all fields required for store, brand, category, and product groupings are present. A missing dimension field would cause a silent KeyError mid-aggregation — this check surfaces it immediately with a clear error before any table is touched.
+- **Revenue data check** — Confirms the revenue field contains at least one valid numeric value. An all-null revenue column would produce meaningless aggregates silently — this halts the pipeline instead.
+- **Date field check** — Confirms the date field has at least one non-null value. Without valid dates, no aggregate row can be correctly partitioned or overwritten on re-run.
 
 ---
 
 ## Reliability & Fault Containment
 
-**Idempotency** — All DB writes use upsert logic. Re-running any script produces the same result without duplicating data.
+### Idempotency
+
+- **Safe re-runs** — The pipeline can be re-run at any time — after a mid-run crash, a deployment restart, or a manual retry — and will always produce identical database state. Duplicate records are structurally impossible.
+- **Date-scoped overwrite** — Before every insert, the pipeline identifies which dates are present in the incoming data and deletes any existing rows for those exact dates across all 5 tables. Fresh data then replaces them cleanly.
+- **Transactional safety** — The delete and insert for each table happen inside the same database transaction. If the insert fails at any point, the delete is automatically rolled back — existing data is preserved intact and the next re-run starts from a clean state.
+- **Full table coverage** — Idempotency is enforced across all tables written by the pipeline: the raw billing table and all 4 aggregate tables (brand, store, category, product). No table is left unguarded.
+- **First-run aware** — On a clean first run with no prior data, the delete step finds nothing and skips silently. There is no special-case logic required for initial loads.
+
+### Additional Fault Containment
 
 **Retry strategy** — DB queries retry up to 5 times with exponential backoff. Groq API retries twice before falling back to Ollama. All retry events are tracked as metrics.
 
 **Fault isolation** — ETL failures do not affect the reporting layer. Reporting failures do not corrupt the data layer. Each script is independently executable and independently monitored.
 
 **Non-fatal monitoring** — Pushgateway push failures never raise exceptions. Monitoring failures are logged as warnings and never interrupt pipeline execution.
+
+**Credential safety** — All DB and API credentials are loaded from a `.env` file via `require_env()`. A missing variable raises a clear `RuntimeError` at startup, before any network or database calls are made.
 
 ---
 
@@ -415,27 +434,38 @@ pip install -r requirements.txt
 ### Environment Variables
 Create a `.env` file in the project root:
 ```env
-DB_USER=
-DB_PASSWORD=
+# Database
 DB_HOST=
 DB_PORT=5432
 DB_NAME=
+DB_USER=
+DB_PASSWORD=
 
+# API
+API_BASE_URL=
+API_USERNAME=
+API_PASSWORD=
+
+# LLM
 GROQ_API_KEY=
 GROQ_MODEL=llama-3.1-8b-instant
-
 OLLAMA_HOST=http://localhost:11434
 OLLAMA_MODEL=llama3.2:3b
 
+# WhatsApp
 WA_TOKEN=
 WA_PHONE_ID=
 
+# Inventory
 STOCK_DIR=store_stocks
 RTV_DIR=store_rtv
 LOW_STOCK_THRESHOLD=5
 
+# Observability
 PUSHGATEWAY_URL=http://localhost:9091
 ```
+
+> **Note:** Never commit `.env` to version control. Add it to `.gitignore`.
 
 ### Airflow (Docker)
 ```bash
@@ -470,10 +500,14 @@ Installs Prometheus, Pushgateway, Node Exporter, and Grafana as systemd services
 
 **LLM as rendering layer** — The model is constrained to names and numbers provided in the prompt. Prompt structure, deduplication, and bullet rules are enforced at the Python layer before the LLM is called.
 
+**Fail fast, fail clearly** — Schema validation runs before transform. Aggregate validation runs before any DB connection opens. Every failure produces a specific, actionable error message — not a generic stack trace.
+
+**Idempotent by design** — Every data write across all 5 tables is safe to repeat. A mid-run crash leaves existing data intact. A re-run restores full state without duplicates.
+
 **Observability-first** — Every script pushes metrics. Every failure is counted, typed, and visible in Grafana. Alerts fire on Telegram before the next morning's run.
 
 **Fault isolation** — Each pipeline layer is independently executable. A failure in distribution does not affect data integrity. A failure in monitoring does not affect pipeline execution.
 
 **Minimal operational dependency** — The system runs unattended. No human action is required between deployment and report delivery.
 
-**Idempotent by design** — Every data write is safe to repeat. Duplicate runs produce identical state, not duplicate records.
+**Credential hygiene** — No credentials are hardcoded. All secrets are loaded from `.env` at runtime with explicit validation on startup.
