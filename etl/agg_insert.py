@@ -21,61 +21,91 @@ POSTGRES_COLUMNS_STORE = ["storename", "nooforder", "sales", "aov", "orderdate"]
 POSTGRES_COLUMNS_CATEGORY = ["subcategoryof", "sales", "orderdate"]
 POSTGRES_COLUMNS_PRODUCT = ["productname", "nooforders", "sales", "quantitysold", "orderdate"]
 
+
+def delete_existing_aggregates_for_dates(cur, dates: list):
+    """
+    Delete existing rows from all 4 aggregate tables for the given dates.
+    Called once before all inserts so re-runs cleanly overwrite the data.
+    """
+    if not dates:
+        print("No dates found in data — skipping aggregate delete step.")
+        return
+
+    print(f"\nChecking and clearing existing aggregate data for dates: {dates}")
+    placeholders = ",".join(["%s"] * len(dates))
+
+    tables = ["brand_sales", "store_sales", "category_sales", "product_sales"]
+    for table in tables:
+        cur.execute(
+            f'DELETE FROM {table} WHERE "orderdate" IN ({placeholders})',
+            dates
+        )
+        deleted = cur.rowcount
+        if deleted > 0:
+            print(f"  Deleted {deleted} existing rows from {table} (overwrite mode).")
+        else:
+            print(f"  No existing rows found in {table} for those dates — clean insert.")
+
+
 def load_aggregates_to_postgres(df: pd.DataFrame):
     conn = None
     try:
         df['totalProductPrice'] = pd.to_numeric(df['totalProductPrice'], errors='coerce')
         df = df[df['totalProductPrice'].notna()]
-        
+
         # CRITICAL: EXCLUDE Ho Marlboro store from aggregations ONLY
         print(f"\n{'='*60}")
         print(f"EXCLUDING Ho Marlboro FROM AGGREGATE TABLES")
         print(f"{'='*60}")
         print(f"Total rows in billing_data (including Ho Marlboro): {len(df)}")
-        
+
         # Check if storeName column exists
         if 'storeName' not in df.columns:
             print("ERROR: 'storeName' column not found in DataFrame!")
             print(f"Available columns: {df.columns.tolist()}")
             return
-        
+
         # Show unique store names before filtering
         unique_stores_all = df['storeName'].unique()
         ho_marlboro_count = len(df[df['storeName'] == 'Ho Marlboro'])
         print(f"Ho Marlboro rows in source data: {ho_marlboro_count}")
-        
+
         # Filter out Ho Marlboro for aggregations
         df_for_aggregates = df[df['storeName'] != 'Ho Marlboro'].copy()
-        
+
         # Show results
         rows_excluded = len(df) - len(df_for_aggregates)
         print(f"Rows excluded from aggregates: {rows_excluded}")
         print(f"Rows used for aggregates: {len(df_for_aggregates)}")
-        
+
         if 'Ho Marlboro' in df_for_aggregates['storeName'].values:
             print("❌ ERROR: Ho Marlboro still in aggregates dataframe!")
             return
         else:
             print("✓ Ho Marlboro successfully excluded from aggregates")
         print(f"{'='*60}\n")
-        
+
         # Use filtered dataframe for all aggregations
         df_agg = df_for_aggregates
-        
+
         if len(df_agg) == 0:
             print("WARNING: No data remaining after filtering!")
             return
-        
+
         print("Connecting to database...")
         conn = psycopg2.connect(
-            host=require_env("DB_HOST"),
-            port=int(os.getenv("DB_PORT", 5432)),
-            database=require_env("DB_NAME"),
-            user=require_env("DB_USER"),
-            password=require_env("DB_PASSWORD"),
+            host="74.225.249.155",
+            port="5432",
+            database="sales_data",
+            user="app_user",
+            password="access_app_3301"
         )
         cur = conn.cursor()
 
+        # --- IDEMPOTENCY: Delete existing aggregate rows for the same dates before inserting ---
+        dates_in_data = df_agg['orderDate'].dropna().unique().tolist()
+        delete_existing_aggregates_for_dates(cur, dates_in_data)
+        # --------------------------------------------------------------------------------------
 
         # -------- Brand Sales (Ho Marlboro excluded) --------
         print("\nProcessing Brand Sales...")
@@ -111,7 +141,7 @@ def load_aggregates_to_postgres(df: pd.DataFrame):
         store_df['sales'] = pd.to_numeric(store_df['sales'], errors='coerce')
         store_df['aov'] = (store_df['sales'] / store_df['nooforder']).round(2)
         store_df.rename(columns={'storeName': 'storename', 'orderDate': 'orderdate'}, inplace=True)
-        
+
         # CRITICAL VERIFICATION: Ensure Ho Marlboro is NOT in store aggregates
         if 'Ho Marlboro' in store_df['storename'].values:
             print("❌ CRITICAL ERROR: Ho Marlboro found in store_sales aggregates!")
@@ -189,7 +219,7 @@ def load_aggregates_to_postgres(df: pd.DataFrame):
         conn.commit()
         cur.close()
         conn.close()
-        
+
         print(f"\n{'='*60}")
         print("✓ SUCCESS: All aggregate tables populated WITHOUT Ho Marlboro")
         print(f"{'='*60}\n")

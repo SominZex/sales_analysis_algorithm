@@ -137,12 +137,12 @@ def debug_date_formats(df: pd.DataFrame):
         print(f"Total rows: {len(df)}")
         print(f"Non-null values: {df['orderDate'].notna().sum()}")
         print(f"Unique date formats (first 10):")
-        
+
         # Show sample values
         sample_dates = df['orderDate'].dropna().head(10).tolist()
         for i, date_val in enumerate(sample_dates, 1):
             print(f"  {i}. '{date_val}' (type: {type(date_val)})")
-        
+
         # Check different possible formats
         test_formats = ["%d-%m-%Y", "%Y-%m-%d", "%m/%d/%Y", "%d/%m/%Y", "%Y/%m/%d"]
         for fmt in test_formats:
@@ -151,14 +151,14 @@ def debug_date_formats(df: pd.DataFrame):
                 print(f"✓ Format '{fmt}' works - parsed as: {parsed}")
             except:
                 print(f"✗ Format '{fmt}' failed")
-        
+
         print("=== END DEBUG ===\n")
 
 def transform_data(df: pd.DataFrame) -> pd.DataFrame:
     print("Starting data transformation...")
-    
+
     debug_date_formats(df)
-    
+
     if "productMrp" in df.columns:
         df = df.drop(columns=["productMrp"])
         print("Dropped column: productMrp")
@@ -168,11 +168,11 @@ def transform_data(df: pd.DataFrame) -> pd.DataFrame:
         print("Processing orderDate column...")
         original_count = df['orderDate'].notna().sum()
         print(f"Original non-null orderDate values: {original_count}")
-        
+
         # Try multiple date formats, prioritizing YYYY-MM-DD since database expects this format
         formats_to_try = ["%Y-%m-%d", "%d-%m-%Y", "%m/%d/%Y", "%d/%m/%Y", "%Y/%m/%d"]
         df['orderDate_parsed'] = None
-        
+
         for fmt in formats_to_try:
             mask = df['orderDate_parsed'].isna() & df['orderDate'].notna()
             if mask.any():
@@ -184,18 +184,18 @@ def transform_data(df: pd.DataFrame) -> pd.DataFrame:
                         df.loc[mask & parsed_dates.notna(), 'orderDate_parsed'] = parsed_dates[parsed_dates.notna()]
                 except Exception as e:
                     print(f"Format '{fmt}' failed: {e}")
-        
+
         if df['orderDate_parsed'].isna().all():
             print("Trying pandas auto-detection...")
             df['orderDate_parsed'] = pd.to_datetime(df['orderDate'], errors='coerce', infer_datetime_format=True)
-        
+
         df['orderDate'] = df['orderDate_parsed'].apply(lambda x: x.date() if pd.notnull(x) else None)
         df = df.drop(columns=['orderDate_parsed'])
-        
+
         final_count = df['orderDate'].notna().sum()
         print(f"Final non-null orderDate values: {final_count}")
         print(f"Successfully converted: {final_count}/{original_count} dates")
-        
+
         sample_converted = df[df['orderDate'].notna()]['orderDate'].head(5).tolist()
         print(f"Sample converted dates: {sample_converted}")
 
@@ -206,7 +206,7 @@ def transform_data(df: pd.DataFrame) -> pd.DataFrame:
         print(f"Sample time values: {df[df['time'].notna()]['time'].head(3).tolist()}")
 
     print("Processing numeric columns...")
-    
+
     for col in INTEGER_COLUMNS + BIGINT_COLUMNS:
         if col in df.columns:
             original_count = df[col].notna().sum()
@@ -225,88 +225,121 @@ def transform_data(df: pd.DataFrame) -> pd.DataFrame:
 
     print("Processing string columns...")
 
-    string_cols = [col for col in df.columns 
-                   if col in POSTGRES_COLUMNS 
+    string_cols = [col for col in df.columns
+                   if col in POSTGRES_COLUMNS
                    and col not in INTEGER_COLUMNS + BIGINT_COLUMNS + NUMERIC_COLUMNS + ["orderDate", "time"]]
-    
+
     for col in string_cols:
         df[col] = df[col].astype(str).replace("nan", None)
 
     existing_cols = [col for col in POSTGRES_COLUMNS if col in df.columns]
     df = df[existing_cols]
-    
+
     for col in POSTGRES_COLUMNS:
         if col not in df.columns:
             df[col] = None
 
     df = df[POSTGRES_COLUMNS]
     print("Data transformation completed.")
-    
+
     print(f"\nFINAL DATA SUMMARY:")
     print(f"Total rows: {len(df)}")
     print(f"orderDate not null: {df['orderDate'].notna().sum()}")
     print(f"time not null: {df['time'].notna().sum()}")
-    
+
     return df
 
+
+def get_dates_in_dataframe(df: pd.DataFrame) -> list:
+    """Extract the unique dates present in the DataFrame's orderDate column."""
+    return df['orderDate'].dropna().unique().tolist()
+
+
+def delete_existing_billing_data_for_dates(cur, dates: list):
+    """
+    Delete existing rows in billing_data for the given dates.
+    This ensures re-runs don't duplicate data.
+    """
+    if not dates:
+        print("No dates found in data — skipping delete step.")
+        return
+
+    print(f"Checking and clearing existing billing_data for dates: {dates}")
+    placeholders = ",".join(["%s"] * len(dates))
+    cur.execute(
+        f'DELETE FROM billing_data WHERE "orderDate" IN ({placeholders})',
+        dates
+    )
+    deleted_rows = cur.rowcount
+    if deleted_rows > 0:
+        print(f"Deleted {deleted_rows} existing rows from billing_data (overwrite mode).")
+    else:
+        print("No existing rows found in billing_data for those dates — clean insert.")
+
+
 def load_to_postgres_bulk(df: pd.DataFrame):
-    """Optimized bulk insert using execute_values"""
+    """Optimized bulk insert using execute_values with idempotency check."""
+    conn = None
     try:
         print("Connecting to database...")
         conn = psycopg2.connect(**DB_CONFIG)
         cur = conn.cursor()
-        
+
+        # --- IDEMPOTENCY: Delete existing rows for the same dates before inserting ---
+        dates_in_data = get_dates_in_dataframe(df)
+        delete_existing_billing_data_for_dates(cur, dates_in_data)
+        # -----------------------------------------------------------------------------
+
         print("Preparing bulk insert...")
-        
+
         cols = ",".join([f'"{c}"' for c in POSTGRES_COLUMNS])
-        
         data_tuples = [tuple(row) for row in df.values]
-        
         insert_sql = f'INSERT INTO billing_data ({cols}) VALUES %s'
-        
+
         print(f"Inserting {len(data_tuples)} rows in bulk...")
-        
+
         psycopg2.extras.execute_values(
-            cur, 
-            insert_sql, 
+            cur,
+            insert_sql,
             data_tuples,
             template=None,
             page_size=1000
         )
-        
+
         conn.commit()
         print(f"Successfully inserted {len(df)} rows into billing_data")
-        
+
         cur.close()
         conn.close()
-        
+
     except Exception as e:
         print(f"Failed to insert data: {e}")
         if conn:
             conn.rollback()
 
+
 def main():
     start_time = time.time()
-    
+
     downloader = CSVDownloader(username="user", password="pw")
     df = downloader.download_yesterday_csv(order_type="online")
-    
+
     if df is not None and not df.empty:
         download_time = time.time()
         print(f"Download completed in {download_time - start_time:.2f} seconds")
-        
+
         df = transform_data(df)
         transform_time = time.time()
         print(f"Transform completed in {transform_time - download_time:.2f} seconds")
-        
+
         load_to_postgres_bulk(df)
         billing_insert_time = time.time()
         print(f"Billing data load completed in {billing_insert_time - transform_time:.2f} seconds")
-        
+
         agg_insert.load_aggregates_to_postgres(df)
         aggregates_insert_time = time.time()
         print(f"Aggregate inserts completed in {aggregates_insert_time - billing_insert_time:.2f} seconds")
-        
+
         print(f"Total ETL execution time: {aggregates_insert_time - start_time:.2f} seconds")
     else:
         print("No data downloaded")
