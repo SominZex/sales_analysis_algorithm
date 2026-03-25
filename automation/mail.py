@@ -7,15 +7,15 @@ from email.mime.text import MIMEText
 from email import encoders
 from datetime import datetime
 
-SMTP_SERVER = "smtp.gmail.com"
-SMTP_PORT = 587
-SENDER_EMAIL = "sender@mail.com"
-SENDER_PASSWORD = "app_password"
-CC_EMAILS = ["mail1", "mail2", "mail3"]
-BCC_EMAILS = ["bcc@mail.com"]
+SMTP_SERVER = "smtp.zoho.in"
+SMTP_PORT = 465
+SENDER_EMAIL = "from@mail.com"
+SENDER_PASSWORD = "app password"
+CC_EMAILS = ['mail1','mail2']
+BCC_EMAILS = ["bccmail@.com"]
 
-REPORTS_DIR = "/home/base/dir/store_reports"
-PARTNER_FILE = "/home/base/dir/partner.csv"
+REPORTS_DIR = "/base/url/store_reports"
+PARTNER_FILE = "/base/url/partner.csv"
 
 def create_email_body(store_name):
     """Return the HTML email body for a specific store."""
@@ -42,8 +42,8 @@ def create_email_body(store_name):
             <br>
             <p>Warm regards,</p>
             <p><strong>Analytics & Insights Team</strong><br>
-            <em>New Shop.</em><br>
-            📧 data@newshop.in</p>
+            <em>Company Name.</em><br>
+            📧 mail@.in</p>
 
             <hr style="margin-top: 25px;">
             <p style="font-size: 12px; color: #777; text-align: center;">
@@ -61,7 +61,7 @@ def send_email_with_attachment(to_email, subject, body, attachment_path):
         msg["From"] = SENDER_EMAIL
         msg["To"] = to_email
         msg["Cc"] = ", ".join(CC_EMAILS)
-        msg["Bcc"] = ", ".join(BCC_EMAILS)
+        msg["Bcc"] = ", ".join(BCC_EMAILS)  # kept (no feature removed)
         msg["Subject"] = subject
 
         msg.attach(MIMEText(body, "html"))
@@ -73,13 +73,19 @@ def send_email_with_attachment(to_email, subject, body, attachment_path):
             part.add_header("Content-Disposition", f"attachment; filename={os.path.basename(attachment_path)}")
             msg.attach(part)
 
-        with smtplib.SMTP(SMTP_SERVER, SMTP_PORT) as server:
-            server.starttls()
-            server.login(SENDER_EMAIL, SENDER_PASSWORD)
-            # Send to both TO and CC recipients
-            server.send_message(msg)
+        # ✅ FIX: include BCC in actual recipients
+        all_recipients = [to_email] + CC_EMAILS + BCC_EMAILS
 
-        print(f"Email sent successfully to {to_email} (CC: {', '.join(CC_EMAILS)})")
+        with smtplib.SMTP_SSL(SMTP_SERVER, SMTP_PORT) as server:
+            server.login(SENDER_EMAIL, SENDER_PASSWORD)
+            server.sendmail(
+                SENDER_EMAIL,
+                all_recipients,
+                msg.as_string()
+            )
+
+        print(f"Email sent successfully to {to_email} (CC: {', '.join(CC_EMAILS)}, BCC: {', '.join(BCC_EMAILS)})")
+
     except Exception as e:
         print(f"Failed to send email to {to_email}: {e}")
 
@@ -100,7 +106,6 @@ def send_all_reports():
             send_email_with_attachment(email, subject, body, pdf_path)
         else:
             print(f"Report not found for store: {store_name}")
-
 
 if __name__ == "__main__":
     send_all_reports()

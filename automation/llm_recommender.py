@@ -411,7 +411,7 @@ def _compute_predictions(df_rows: list, trend_data: dict, name_key: str) -> dict
 
     # Sort by severity
     stockout_risk.sort(key=lambda x: float(x["qty_change"].replace("+", "").replace("%", "")), reverse=True)
-    margin_erosion.sort(key=lambda x: float(x["margin_shift"].replace("pp", "")))
+    margin_erosion.sort(key=lambda x: float(x["margin_shift"].replace("pp", "").split()[0]))
     rising_stars.sort(key=lambda x: float(x["sales_change"].replace("+", "").replace("%", "")), reverse=True)
 
     return {
@@ -471,7 +471,7 @@ def _compute_intelligence(df: pd.DataFrame, name_col: str, trend_data: dict) -> 
 
     top1_share         = round((top10.iloc[0]["_sales"] / total_sales * 100), 1) if total_sales > 0 else 0
     top3_share         = round((top10.head(3)["_sales"].sum() / total_sales * 100), 1) if total_sales > 0 else 0
-    concentration_flag = bool(top3_share > 50)
+    concentration_flag = top3_share > 50
 
     mix_risk_items = pd.DataFrame()
     if not df["_margin"].isna().all() and not df["_contrib"].isna().all():
@@ -1243,7 +1243,7 @@ def product_stock_insight(
     # Negative stock — most negative quantity first (worst GRN offenders)
     top_neg = (
         neg_df[["productName", "brand", "categoryName", "quantity", "sellingPrice", "vendorName"]]
-        .sort_values("quantity")           # most negative first
+        .sort_values("quantity")
         .head(10)
         .round(2)
         .to_dict("records")

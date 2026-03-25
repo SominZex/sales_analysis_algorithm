@@ -99,7 +99,7 @@ def plot_chart(df, x_col, y_col, title, top_n=10):
 
 def generate_store_report(store_name):
     """Generate monthly PDF report for one store - for PREVIOUS COMPLETE MONTH"""
-    
+
     # Get the date range for the previous complete month
     date_range_query = """
         WITH latest_date AS (
@@ -108,20 +108,20 @@ def generate_store_report(store_name):
             WHERE "storeName" = %s
         ),
         target_month AS (
-            SELECT 
-                CASE 
+            SELECT
+                CASE
                     WHEN (SELECT DATE_TRUNC('month', max_date) FROM latest_date) >= DATE_TRUNC('month', CURRENT_DATE - INTERVAL '1 month')
                     THEN DATE_TRUNC('month', CURRENT_DATE - INTERVAL '1 month')
                     ELSE DATE_TRUNC('month', (SELECT max_date FROM latest_date))
                 END AS report_month
         )
-        SELECT 
+        SELECT
             (SELECT report_month FROM target_month)::date AS month_start,
             ((SELECT report_month FROM target_month) + INTERVAL '1 month' - INTERVAL '1 day')::date AS month_end;
     """
-    
+
     date_info = safe_read_sql(date_range_query, params=(store_name,))
-    
+
     if date_info.empty:
         month_start_str = "N/A"
         month_end_str = "N/A"
@@ -130,7 +130,7 @@ def generate_store_report(store_name):
         month_end = date_info['month_end'].iloc[0]
         month_start_str = month_start.strftime('%d %b %Y')
         month_end_str = month_end.strftime('%d %b %Y')
-    
+
     # === Get Previous 3 Months Average and Last Complete Month Sales ===
     comparison_query = """
         WITH latest_date AS (
@@ -139,50 +139,50 @@ def generate_store_report(store_name):
             WHERE "storeName" = %s
         ),
         target_month AS (
-            SELECT 
-                CASE 
+            SELECT
+                CASE
                     WHEN DATE_TRUNC('month', (SELECT max_date FROM latest_date)) >= DATE_TRUNC('month', CURRENT_DATE - INTERVAL '1 month')
                     THEN DATE_TRUNC('month', CURRENT_DATE - INTERVAL '1 month')
                     ELSE DATE_TRUNC('month', (SELECT max_date FROM latest_date))
                 END AS report_month
         ),
         sales_periods AS (
-            SELECT 
-                SUM(CASE 
+            SELECT
+                SUM(CASE
                     WHEN DATE_TRUNC('month', "orderDate") = (SELECT report_month FROM target_month)
-                    THEN "totalProductPrice" 
-                    ELSE 0 
+                    THEN "totalProductPrice"
+                    ELSE 0
                 END) AS current_month_sales,
-                SUM(CASE 
+                SUM(CASE
                     WHEN DATE_TRUNC('month', "orderDate") = (SELECT report_month FROM target_month) - INTERVAL '1 month'
-                    THEN "totalProductPrice" 
-                    ELSE 0 
+                    THEN "totalProductPrice"
+                    ELSE 0
                 END) AS month_1_sales,
-                SUM(CASE 
+                SUM(CASE
                     WHEN DATE_TRUNC('month', "orderDate") = (SELECT report_month FROM target_month) - INTERVAL '2 months'
-                    THEN "totalProductPrice" 
-                    ELSE 0 
+                    THEN "totalProductPrice"
+                    ELSE 0
                 END) AS month_2_sales,
-                SUM(CASE 
+                SUM(CASE
                     WHEN DATE_TRUNC('month', "orderDate") = (SELECT report_month FROM target_month) - INTERVAL '3 months'
-                    THEN "totalProductPrice" 
-                    ELSE 0 
+                    THEN "totalProductPrice"
+                    ELSE 0
                 END) AS month_3_sales
             FROM "billing_data"
             WHERE "storeName" = %s
         )
-        SELECT 
+        SELECT
             current_month_sales,
             (month_1_sales + month_2_sales + month_3_sales) / 3.0 AS prev_3_months_avg
         FROM sales_periods;
     """
-    
+
     comparison_df = safe_read_sql(comparison_query, params=(store_name, store_name))
-    
+
     if not comparison_df.empty and comparison_df['current_month_sales'].iloc[0] is not None:
         current_month_sales = float(comparison_df['current_month_sales'].iloc[0])
         prev_3_months_avg = float(comparison_df['prev_3_months_avg'].iloc[0]) if comparison_df['prev_3_months_avg'].iloc[0] is not None else 0.0
-        
+
         if prev_3_months_avg > 0:
             percentage_diff = ((current_month_sales - prev_3_months_avg) / prev_3_months_avg) * 100
             diff_sign = "+" if percentage_diff >= 0 else ""
@@ -200,7 +200,7 @@ def generate_store_report(store_name):
     else:
         current_month_sales = 0.0
         comparison_text = '<div style="text-align: center; margin-top: 10px;"><span style="font-size: 18px; color: #666;">No sales data available</span></div>'
-    
+
     # === Queries for Previous Complete Month with Contribution % and Profit Margin %
     brand_query = """
         WITH latest_date AS (
@@ -209,8 +209,8 @@ def generate_store_report(store_name):
             WHERE "storeName" = %s
         ),
         target_month AS (
-            SELECT 
-                CASE 
+            SELECT
+                CASE
                     WHEN DATE_TRUNC('month', (SELECT max_date FROM latest_date)) >= DATE_TRUNC('month', CURRENT_DATE - INTERVAL '1 month')
                     THEN DATE_TRUNC('month', CURRENT_DATE - INTERVAL '1 month')
                     ELSE DATE_TRUNC('month', (SELECT max_date FROM latest_date))
@@ -222,13 +222,13 @@ def generate_store_report(store_name):
             WHERE b."storeName" = %s
               AND DATE_TRUNC('month', b."orderDate") = (SELECT report_month FROM target_month)
         )
-        SELECT 
+        SELECT
             b."brandName",
             ROUND(SUM(b."totalProductPrice")::numeric, 2) AS total_sales,
             SUM(b."quantity") AS quantity_sold,
             ROUND((SUM(b."totalProductPrice") / NULLIF((SELECT total FROM total_sales), 0) * 100)::numeric, 2) AS contrib_percent,
             ROUND(
-                CASE 
+                CASE
                     WHEN SUM(b."totalProductPrice") > 0 THEN
                         ((SUM(b."totalProductPrice") - SUM(COALESCE(b."costPrice", 0) * b."quantity")) / SUM(b."totalProductPrice") * 100)::numeric
                     ELSE 0
@@ -249,8 +249,8 @@ def generate_store_report(store_name):
             WHERE "storeName" = %s
         ),
         target_month AS (
-            SELECT 
-                CASE 
+            SELECT
+                CASE
                     WHEN DATE_TRUNC('month', (SELECT max_date FROM latest_date)) >= DATE_TRUNC('month', CURRENT_DATE - INTERVAL '1 month')
                     THEN DATE_TRUNC('month', CURRENT_DATE - INTERVAL '1 month')
                     ELSE DATE_TRUNC('month', (SELECT max_date FROM latest_date))
@@ -262,13 +262,13 @@ def generate_store_report(store_name):
             WHERE b."storeName" = %s
               AND DATE_TRUNC('month', b."orderDate") = (SELECT report_month FROM target_month)
         )
-        SELECT 
+        SELECT
             b."categoryName",
             ROUND(SUM(b."totalProductPrice")::numeric, 2) AS total_sales,
             SUM(b."quantity") AS quantity_sold,
             ROUND((SUM(b."totalProductPrice") / NULLIF((SELECT total FROM total_sales), 0) * 100)::numeric, 2) AS contrib_percent,
             ROUND(
-                CASE 
+                CASE
                     WHEN SUM(b."totalProductPrice") > 0 THEN
                         ((SUM(b."totalProductPrice") - SUM(COALESCE(b."costPrice", 0) * b."quantity")) / SUM(b."totalProductPrice") * 100)::numeric
                     ELSE 0
@@ -289,8 +289,8 @@ def generate_store_report(store_name):
             WHERE "storeName" = %s
         ),
         target_month AS (
-            SELECT 
-                CASE 
+            SELECT
+                CASE
                     WHEN DATE_TRUNC('month', (SELECT max_date FROM latest_date)) >= DATE_TRUNC('month', CURRENT_DATE - INTERVAL '1 month')
                     THEN DATE_TRUNC('month', CURRENT_DATE - INTERVAL '1 month')
                     ELSE DATE_TRUNC('month', (SELECT max_date FROM latest_date))
@@ -302,13 +302,13 @@ def generate_store_report(store_name):
             WHERE b."storeName" = %s
               AND DATE_TRUNC('month', b."orderDate") = (SELECT report_month FROM target_month)
         )
-        SELECT 
+        SELECT
             b."productName",
             ROUND(SUM(b."totalProductPrice")::numeric, 2) AS total_sales,
             SUM(b."quantity") AS quantity_sold,
             ROUND((SUM(b."totalProductPrice") / NULLIF((SELECT total FROM total_sales), 0) * 100)::numeric, 2) AS contrib_percent,
             ROUND(
-                CASE 
+                CASE
                     WHEN SUM(b."totalProductPrice") > 0 THEN
                         ((SUM(b."totalProductPrice") - SUM(COALESCE(b."costPrice", 0) * b."quantity")) / SUM(b."totalProductPrice") * 100)::numeric
                     ELSE 0
@@ -336,19 +336,19 @@ def generate_store_report(store_name):
             WHERE "storeName" = %s
         ),
         target_month AS (
-            SELECT 
-                CASE 
-                    WHEN EXTRACT(DAY FROM CURRENT_DATE) >= 1 
+            SELECT
+                CASE
+                    WHEN EXTRACT(DAY FROM CURRENT_DATE) >= 1
                          AND DATE_TRUNC('month', (SELECT max_date FROM latest_date)) >= DATE_TRUNC('month', CURRENT_DATE - INTERVAL '1 month')
                     THEN DATE_TRUNC('month', CURRENT_DATE - INTERVAL '1 month')
                     ELSE DATE_TRUNC('month', (SELECT max_date FROM latest_date))
                 END AS report_month
         ),
         item_margins AS (
-            SELECT 
+            SELECT
                 "totalProductPrice",
                 COALESCE("costPrice", 0) * "quantity" AS item_cost,
-                CASE 
+                CASE
                     WHEN "totalProductPrice" > 0 THEN
                         (("totalProductPrice" - COALESCE("costPrice", 0) * "quantity") / "totalProductPrice" * 100)
                     ELSE 0
@@ -357,16 +357,16 @@ def generate_store_report(store_name):
             WHERE "storeName" = %s
               AND DATE_TRUNC('month', "orderDate") = (SELECT report_month FROM target_month)
         )
-        SELECT 
+        SELECT
             ROUND(SUM("totalProductPrice")::numeric, 2) AS total_monthly_sales,
             ROUND(SUM(item_cost)::numeric, 2) AS total_monthly_cost,
             ROUND((SUM("totalProductPrice") - SUM(item_cost))::numeric, 2) AS total_monthly_profit,
             ROUND(AVG(item_profit_margin)::numeric, 2) AS avg_profit_margin_percent
         FROM item_margins;
     """
-    
+
     total_sales_profit_df = safe_read_sql(total_sales_profit_query, params=(store_name, store_name))
-    
+
     if not total_sales_profit_df.empty and total_sales_profit_df["total_monthly_sales"].iloc[0] is not None:
         total_monthly_sales      = float(total_sales_profit_df["total_monthly_sales"].iloc[0])
         total_monthly_cost       = float(total_sales_profit_df["total_monthly_cost"].iloc[0]) if total_sales_profit_df["total_monthly_cost"].iloc[0] is not None else 0.0
@@ -487,11 +487,11 @@ def generate_store_report(store_name):
         </style>
     </head>
     <body>
-        <img src="file:///base/dir/sales_analysis_algorithm/tns.png" class="logo" alt="Company Logo">
+        <img src="file:///base/url/tns.png" class="logo" alt="Company Logo">
         <h1>📊 Monthly Store Report – {store_name}</h1>
         <div class="date-range">Month: {month_start_str} to {month_end_str}</div>
         <h2>Total Monthly Sales: ₹{total_monthly_sales:,.2f}</h2>
-        
+
         <div class="profit-section">
             <span class="profit-label">Total Profit:</span>
             <span class="profit-value">₹{total_monthly_profit:,.2f}</span>
@@ -499,7 +499,7 @@ def generate_store_report(store_name):
             <span class="profit-label">Average Profit Margin:</span>
             <span class="profit-margin">{avg_profit_margin_percent:.2f}%</span>
         </div>
-        
+
         {comparison_text}
 
         <div class="table-title">Top 50 Brands (by Sales)</div>
@@ -521,8 +521,8 @@ def generate_store_report(store_name):
     """
 
     # Save PDF
-    os.makedirs("/base/dir/sales_analysis_algorithm/monthly_reports", exist_ok=True)
-    pdf_path = os.path.join("/base/dir/sales_analysis_algorithm/monthly_reports", f"{store_name.replace(' ', '_')}_monthly_report.pdf")
+    os.makedirs("/base/url/monthly_reports", exist_ok=True)
+    pdf_path = os.path.join("/base/url/monthly_reports", f"{store_name.replace(' ', '_')}_monthly_report.pdf")
     pdfkit.from_string(html_template, pdf_path, configuration=PDFKIT_CONFIG, options={"enable-local-file-access": ""})
     print(f"✅ Saved {store_name} report → {pdf_path}")
 
@@ -537,5 +537,3 @@ if __name__ == "__main__":
             time.sleep(1)
         except Exception as e:
             print(f"❌ Error generating report for {store}: {e}")
-
-    print("\n✅ All store reports generated successfully inside /monthly_reports/")

@@ -17,6 +17,7 @@ BCC_EMAILS = ["bcc@mail.com"]
 REPORTS_DIR = "/home/base/dir/store_reports"
 PARTNER_FILE = "/home/base/dir/partner.csv"
 
+
 def create_email_body(store_name):
     """Return the HTML email body for a specific store."""
     today = datetime.now()
@@ -24,7 +25,6 @@ def create_email_body(store_name):
     first_day_current_month = today.replace(day=1)
     last_day_previous_month = first_day_current_month - timedelta(days=1)
     previous_month = last_day_previous_month.strftime("%B %Y")
-
 
     return f"""
     <html>
@@ -40,7 +40,7 @@ def create_email_body(store_name):
             <h3 style="text-align: center; color: #0078D7;">{store_name}</h3>
 
             <p>This comprehensive report covers your store's sales performance for <strong>{previous_month}</strong>, including:</p>
-            
+
             <ul style="line-height: 1.8;">
                 <li>📊 Total monthly sales performance</li>
                 <li>📈 Comparison with previous 3 months average</li>
@@ -59,8 +59,8 @@ def create_email_body(store_name):
             <br>
             <p>Best regards,</p>
             <p><strong>Analytics & Business Insights Team</strong><br>
-            <em>New Shop</em><br>
-            📧 data@newshop.in<br>
+            <em>company name</em><br>
+            📧 mail@.in<br>
             📅 Report Generated: {today_str}</p>
 
             <hr style="margin-top: 25px;">
@@ -73,6 +73,7 @@ def create_email_body(store_name):
     </html>
     """
 
+
 def send_email_with_attachment(to_email, subject, body, attachment_path):
     """Send an email with a PDF attachment"""
     try:
@@ -80,7 +81,7 @@ def send_email_with_attachment(to_email, subject, body, attachment_path):
         msg["From"] = SENDER_EMAIL
         msg["To"] = to_email
         msg["Cc"] = ", ".join(CC_EMAILS)
-        msg["Bcc"] = ", ".join(BCC_EMAILS)
+        # ❌ DO NOT SET BCC HEADER (kept hidden)
         msg["Subject"] = subject
 
         msg.attach(MIMEText(body, "html"))
@@ -92,20 +93,27 @@ def send_email_with_attachment(to_email, subject, body, attachment_path):
             part.add_header("Content-Disposition", f"attachment; filename={os.path.basename(attachment_path)}")
             msg.attach(part)
 
-        with smtplib.SMTP(SMTP_SERVER, SMTP_PORT) as server:
-            server.starttls()
-            server.login(SENDER_EMAIL, SENDER_PASSWORD)
-            # Send to both TO and CC recipients
-            server.send_message(msg)
+        # ✅ Combine all recipients properly
+        all_recipients = [to_email] + CC_EMAILS + BCC_EMAILS
 
-        print(f"✅ Email sent successfully to {to_email} (CC: {', '.join(CC_EMAILS)})")
+        # ✅ ZOHO SSL (NO starttls)
+        with smtplib.SMTP_SSL(SMTP_SERVER, SMTP_PORT) as server:
+            server.login(SENDER_EMAIL, SENDER_PASSWORD)
+            server.sendmail(
+                SENDER_EMAIL,
+                all_recipients,
+                msg.as_string()
+            )
+
+        print(f"✅ Email sent successfully → TO: {to_email}, CC: {CC_EMAILS}, BCC: {BCC_EMAILS}")
+
     except Exception as e:
         print(f"❌ Failed to send email to {to_email}: {e}")
 
 
 def send_all_reports():
     partners_df = pd.read_csv(PARTNER_FILE)
-    
+
     # Get previous month
     today = datetime.now()
     first_day_current_month = today.replace(day=1)
@@ -123,7 +131,7 @@ def send_all_reports():
 
         if os.path.exists(pdf_path):
             subject = f"Monthly Performance Report - {store_name} ({previous_month})"
-            
+
             body = create_email_body(store_name)
             send_email_with_attachment(email, subject, body, pdf_path)
         else:

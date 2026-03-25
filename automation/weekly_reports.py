@@ -24,9 +24,24 @@ from llm_recommender import (
 )
 
 # Directory where stock.py saves per-store CSVs (relative or absolute path)
-STOCK_DIR           = os.getenv("STOCK_DIR", "store_stocks")
+# ───────────────────────── PATH CONFIG (CRITICAL FIX) ─────────────────────────
+
+BASE_DIR = "/base/url"
+
+STOCK_DIR = os.getenv(
+    "STOCK_DIR",
+    os.path.join(BASE_DIR, "store_stocks")
+)
+
+RTV_DIR = os.getenv(
+    "RTV_DIR",
+    os.path.join(BASE_DIR, "store_rtv")
+)
+
 LOW_STOCK_THRESHOLD = float(os.getenv("LOW_STOCK_THRESHOLD", "5"))
-RTV_DIR             = os.getenv("RTV_DIR", "store_rtv")
+
+print(f"📂 STOCK_DIR → {STOCK_DIR}")
+print(f"📂 RTV_DIR   → {RTV_DIR}")
 
 load_dotenv()
 
@@ -59,7 +74,7 @@ engine = create_engine(
 
 PDFKIT_CONFIG = pdfkit.configuration(wkhtmltopdf="/usr/bin/wkhtmltopdf")
 
- 
+
 def safe_read_sql(query, params=None, retries=5, delay=3):
     """Executes SQL query with retries for transient DB disconnects"""
     for attempt in range(retries):
@@ -67,28 +82,28 @@ def safe_read_sql(query, params=None, retries=5, delay=3):
             with engine.connect() as conn:
                 result = pd.read_sql(query, conn, params=params)
                 return result
-                
+
         except OperationalError as e:
             error_str = str(e)
             print(f"⚠️ Database error (attempt {attempt+1}/{retries}): {error_str[:100]}")
-            
+
             if attempt == retries - 1:
                 raise RuntimeError(f"❌ Query failed after {retries} retries: {error_str[:200]}")
-            
+
             wait_time = delay * (2 ** attempt)
             print(f"   ⏳ Waiting {wait_time}s before retry...")
             time.sleep(wait_time)
-            
+
             if "EOF" in error_str or "closed" in error_str.lower() or "terminated" in error_str.lower():
                 print("   🔄 Recreating database connection pool...")
                 engine.dispose()
-                
+
         except Exception as e:
             print(f"⚠️ Unexpected error (attempt {attempt+1}/{retries}): {e}")
             if attempt == retries - 1:
                 raise RuntimeError(f"❌ Query failed: {e}")
             time.sleep(delay)
-    
+
     raise RuntimeError("❌ Query failed after multiple retries.")
 
 
@@ -262,21 +277,21 @@ def plot_chart(df, x_col, y_col, title, top_n=10):
 
 def generate_store_report(store_name):
     """Generate weekly PDF report for one store"""
-    
+
     date_range_query = """
         WITH latest_date AS (
             SELECT MAX("orderDate")::date AS max_date
             FROM "billing_data"
             WHERE "storeName" = %s
         )
-        SELECT 
+        SELECT
             (max_date - INTERVAL '6 days')::date AS week_start,
             max_date AS week_end
         FROM latest_date;
     """
-    
+
     date_info = safe_read_sql(date_range_query, params=(store_name,))
-    
+
     if date_info.empty:
         week_start_str = "N/A"
         week_end_str = "N/A"
@@ -285,7 +300,7 @@ def generate_store_report(store_name):
         week_end   = date_info['week_end'].iloc[0]
         week_start_str = week_start.strftime('%d %b %Y')
         week_end_str   = week_end.strftime('%d %b %Y')
-    
+
     # === Get Previous 2 Weeks Average and Current Week Sales ===
     comparison_query = """
         WITH latest_date AS (
@@ -294,40 +309,40 @@ def generate_store_report(store_name):
             WHERE "storeName" = %s
         ),
         sales_periods AS (
-            SELECT 
-                SUM(CASE 
+            SELECT
+                SUM(CASE
                     WHEN "orderDate" > (SELECT max_date FROM latest_date) - INTERVAL '7 days'
                          AND "orderDate" <= (SELECT max_date FROM latest_date)
-                    THEN "totalProductPrice" 
-                    ELSE 0 
+                    THEN "totalProductPrice"
+                    ELSE 0
                 END) AS current_week_sales,
-                SUM(CASE 
+                SUM(CASE
                     WHEN "orderDate" > (SELECT max_date FROM latest_date) - INTERVAL '14 days'
                          AND "orderDate" <= (SELECT max_date FROM latest_date) - INTERVAL '7 days'
-                    THEN "totalProductPrice" 
-                    ELSE 0 
+                    THEN "totalProductPrice"
+                    ELSE 0
                 END) AS week_2_sales,
-                SUM(CASE 
+                SUM(CASE
                     WHEN "orderDate" > (SELECT max_date FROM latest_date) - INTERVAL '21 days'
                          AND "orderDate" <= (SELECT max_date FROM latest_date) - INTERVAL '14 days'
-                    THEN "totalProductPrice" 
-                    ELSE 0 
+                    THEN "totalProductPrice"
+                    ELSE 0
                 END) AS week_3_sales
             FROM "billing_data"
             WHERE "storeName" = %s
         )
-        SELECT 
+        SELECT
             current_week_sales,
             (week_2_sales + week_3_sales) / 2.0 AS prev_2_weeks_avg
         FROM sales_periods;
     """
-    
+
     comparison_df = safe_read_sql(comparison_query, params=(store_name, store_name))
-    
+
     if not comparison_df.empty and comparison_df['current_week_sales'].iloc[0] is not None:
         current_week_sales = float(comparison_df['current_week_sales'].iloc[0])
         prev_2_weeks_avg   = float(comparison_df['prev_2_weeks_avg'].iloc[0]) if comparison_df['prev_2_weeks_avg'].iloc[0] is not None else 0.0
-        
+
         if prev_2_weeks_avg > 0:
             percentage_diff = ((current_week_sales - prev_2_weeks_avg) / prev_2_weeks_avg) * 100
             diff_sign  = "+" if percentage_diff >= 0 else ""
@@ -345,7 +360,7 @@ def generate_store_report(store_name):
     else:
         current_week_sales = 0.0
         comparison_text    = '<div style="text-align: center; margin-top: 10px;"><span style="font-size: 18px; color: #666;">No sales data available</span></div>'
-    
+
     # === Queries with Contribution % and Profit Margin %
     brand_query = """
         WITH latest_date AS (
@@ -360,13 +375,13 @@ def generate_store_report(store_name):
               AND b."orderDate" > (SELECT max_date FROM latest_date) - INTERVAL '7 days'
               AND b."orderDate" <= (SELECT max_date FROM latest_date)
         )
-        SELECT 
+        SELECT
             b."brandName",
             ROUND(SUM(b."totalProductPrice")::numeric, 2) AS total_sales,
             SUM(b."quantity") AS quantity_sold,
             ROUND((SUM(b."totalProductPrice") / NULLIF((SELECT total FROM total_sales), 0) * 100)::numeric, 2) AS contrib_percent,
             ROUND(
-                CASE 
+                CASE
                     WHEN SUM(b."totalProductPrice") > 0 THEN
                         ((SUM(b."totalProductPrice") - SUM(COALESCE(b."costPrice", 0) * b."quantity")) / SUM(b."totalProductPrice") * 100)::numeric
                     ELSE 0
@@ -394,13 +409,13 @@ def generate_store_report(store_name):
               AND b."orderDate" > (SELECT max_date FROM latest_date) - INTERVAL '7 days'
               AND b."orderDate" <= (SELECT max_date FROM latest_date)
         )
-        SELECT 
+        SELECT
             b."categoryName",
             ROUND(SUM(b."totalProductPrice")::numeric, 2) AS total_sales,
             SUM(b."quantity") AS quantity_sold,
             ROUND((SUM(b."totalProductPrice") / NULLIF((SELECT total FROM total_sales), 0) * 100)::numeric, 2) AS contrib_percent,
             ROUND(
-                CASE 
+                CASE
                     WHEN SUM(b."totalProductPrice") > 0 THEN
                         ((SUM(b."totalProductPrice") - SUM(COALESCE(b."costPrice", 0) * b."quantity")) / SUM(b."totalProductPrice") * 100)::numeric
                     ELSE 0
@@ -428,13 +443,13 @@ def generate_store_report(store_name):
               AND b."orderDate" > (SELECT max_date FROM latest_date) - INTERVAL '7 days'
               AND b."orderDate" <= (SELECT max_date FROM latest_date)
         )
-        SELECT 
+        SELECT
             b."productName",
             ROUND(SUM(b."totalProductPrice")::numeric, 2) AS total_sales,
             SUM(b."quantity") AS quantity_sold,
             ROUND((SUM(b."totalProductPrice") / NULLIF((SELECT total FROM total_sales), 0) * 100)::numeric, 2) AS contrib_percent,
             ROUND(
-                CASE 
+                CASE
                     WHEN SUM(b."totalProductPrice") > 0 THEN
                         ((SUM(b."totalProductPrice") - SUM(COALESCE(b."costPrice", 0) * b."quantity")) / SUM(b."totalProductPrice") * 100)::numeric
                     ELSE 0
@@ -470,10 +485,10 @@ def generate_store_report(store_name):
             WHERE "storeName" = %s
         ),
         item_margins AS (
-            SELECT 
+            SELECT
                 "totalProductPrice",
                 COALESCE("costPrice", 0) * "quantity" AS item_cost,
-                CASE 
+                CASE
                     WHEN "totalProductPrice" > 0 THEN
                         (("totalProductPrice" - COALESCE("costPrice", 0) * "quantity") / "totalProductPrice" * 100)
                     ELSE 0
@@ -483,16 +498,16 @@ def generate_store_report(store_name):
               AND "orderDate" > (SELECT max_date FROM latest_date) - INTERVAL '7 days'
               AND "orderDate" <= (SELECT max_date FROM latest_date)
         )
-        SELECT 
+        SELECT
             ROUND(SUM("totalProductPrice")::numeric, 2) AS total_weekly_sales,
             ROUND(SUM(item_cost)::numeric, 2) AS total_weekly_cost,
             ROUND((SUM("totalProductPrice") - SUM(item_cost))::numeric, 2) AS total_weekly_profit,
             ROUND(AVG(item_profit_margin)::numeric, 2) AS avg_profit_margin_percent
         FROM item_margins;
     """
-    
+
     total_sales_profit_df = safe_read_sql(total_sales_profit_query, params=(store_name, store_name))
-    
+
     if not total_sales_profit_df.empty and total_sales_profit_df["total_weekly_sales"].iloc[0] is not None:
         total_weekly_sales        = float(total_sales_profit_df["total_weekly_sales"].iloc[0])
         total_weekly_cost         = float(total_sales_profit_df["total_weekly_cost"].iloc[0]) if total_sales_profit_df["total_weekly_cost"].iloc[0] is not None else 0.0
@@ -501,7 +516,7 @@ def generate_store_report(store_name):
     else:
         total_weekly_sales        = 0.0
         total_weekly_cost         = 0.0
-        total_weekly_profit       = 0.0 
+        total_weekly_profit       = 0.0
         avg_profit_margin_percent = 0.0
 
     # ── LLM calls (numeric dfs, before % suffix is added) ────────────────────
@@ -630,11 +645,11 @@ def generate_store_report(store_name):
         </style>
     </head>
     <body>
-        <img src="file:///home/azureuser/azure_analysis_algorithm/tns.png" class="logo" alt="Company Logo">
+        <img src="file:///base/url/tns.png" class="logo" alt="Company Logo">
         <h1>📊 Weekly Store Report – {store_name}</h1>
         <div class="date-range">Week: {week_start_str} to {week_end_str}</div>
         <h2>Total Weekly Sales: ₹{total_weekly_sales:,.2f}</h2>
-        
+
         <div class="profit-section">
             <span class="profit-label">Total Profit:</span>
             <span class="profit-value">₹{total_weekly_profit:,.2f}</span>
@@ -642,7 +657,7 @@ def generate_store_report(store_name):
             <span class="profit-label">Average Profit Margin:</span>
             <span class="profit-margin">{avg_profit_margin_percent:.2f}%</span>
         </div>
-        
+
         {comparison_text}
 
         <div class="table-title">Top 50 Brands (by Sales)</div>
@@ -651,7 +666,7 @@ def generate_store_report(store_name):
         {brand_rec}
         {brand_stock_rec}
 
-        
+
         <div style="height: 240px;"></div>
         <div class="table-title">Top 50 Categories (by Sales)</div>
         {category_table_html}
@@ -670,8 +685,8 @@ def generate_store_report(store_name):
     """
 
     # Save PDF
-    os.makedirs("/home/azureuser/azure_analysis_algorithm/store_reports", exist_ok=True)
-    pdf_path = os.path.join("/home/azureuser/azure_analysis_algorithm/store_reports", f"{store_name.replace(' ', '_')}_weekly_report.pdf")
+    os.makedirs("/base/url/store_reports", exist_ok=True)
+    pdf_path = os.path.join("/base/url/store_reports", f"{store_name.replace(' ', '_')}_weekly_report.pdf")
     pdfkit.from_string(html_template, pdf_path, configuration=PDFKIT_CONFIG, options={"enable-local-file-access": ""})
     print(f"✅ Saved {store_name} report → {pdf_path}")
 

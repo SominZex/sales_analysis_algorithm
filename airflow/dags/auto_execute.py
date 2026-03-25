@@ -1,29 +1,49 @@
 from airflow import DAG
 from airflow.operators.bash import BashOperator
-from airflow.operators.python import BranchPythonOperator
+from airflow.operators.python import BranchPythonOperator, PythonOperator
 from airflow.operators.empty import EmptyOperator
-from datetime import datetime
-
-from datetime import timedelta
+from datetime import datetime, timedelta
+import os
 
 default_args = {
     "owner": "Somin",
     "retries": 1,
     "retry_delay": timedelta(minutes=7),
-    "email": ["sominzex@gmail.com"],
+    "email": ["sominzex21@gmail.com"],
     "email_on_failure": True,
     "email_on_retry": False,
 }
 
+# ──────────────────────────── BRANCH LOGIC ────────────────────────────
+
 def check_weekly(**context):
-    if context["data_interval_end"].weekday() == 0:
-        return "weekly_reports"
+    if context["logical_date"].weekday() == 0:
+        return ["rtv_report", "stock"]
     return "skip_weekly"
 
 def check_monthly(**context):
-    if context["data_interval_end"].day == 1:
+    if context["logical_date"].day == 1:
         return "monthly_reports"
     return "skip_monthly"
+
+# ──────────────────────────── VALIDATION (CRITICAL) ────────────────────────────
+
+def validate_dir(path):
+    if not os.path.exists(path):
+        raise Exception(f"{path} does not exist")
+
+    files = os.listdir(path)
+
+    if not files:
+        raise Exception(f"No files found in {path}")
+
+    # Optional: ensure non-empty files
+    for f in files:
+        full_path = os.path.join(path, f)
+        if os.path.getsize(full_path) == 0:
+            raise Exception(f"Empty file detected: {full_path}")
+
+# ──────────────────────────── DAG ────────────────────────────
 
 with DAG(
     dag_id="sales_master_pipeline",
@@ -32,86 +52,138 @@ with DAG(
     schedule="25 0 * * *",
     catchup=False,
     max_active_runs=1,
-    tags=["sales", "production", "automation"]
+    tags=["sales", "production", "automation"],
 ) as dag:
 
-    # ---------------- DAILY ----------------
+    # ──────────────────────────── DAILY ────────────────────────────
 
     etl = BashOperator(
         task_id="etl_pip",
-        bash_command="/home/base/etl/vmac/bin/python /home/base/etl/etl_pip.py "
+        bash_command=(
+            "/base/url/vmac/bin/python "
+            "/base/url/etl/etl_pip.py "
+        ),
     )
 
     product_update = BashOperator(
         task_id="product_update",
-        bash_command="/home/base/etl/vmac/bin/python /home/base/etl/product_update.py "
+        bash_command=(
+            "/base/url/vmac/bin/python "
+            "/base/url/etl/product_update.py "
+        ),
     )
 
-    analysis = BashOperator(
-        task_id="daily_analysis",
-        bash_command="bash /home/base/sales_analysis_algorithm/run_analysis.sh "
-    )
-
-    daily_whatsapp = BashOperator(
-        task_id="daily_whatsapp",
-        retries=2,
-        retry_delay=timedelta(minutes=5),
-        bash_command="/home/base/sales_analysis_algorithm/vmac/bin/python /home/base/sales_analysis_algorithm/wa_sender.py "
-    )
-
-    # ---------------- WEEKLY ----------------
+    # ──────────────────────────── WEEKLY ────────────────────────────
 
     weekly_branch = BranchPythonOperator(
         task_id="check_weekly",
-        python_callable=check_weekly
+        python_callable=check_weekly,
+    )
+
+    rtv_report = BashOperator(
+        task_id="rtv_report",
+        bash_command=(
+            "/base/url/vmac/bin/python "
+            "/base/url/rtv_report.py "
+            "--execution_date {{ ds }}"
+        ),
+    )
+
+    stock = BashOperator(
+        task_id="stock",
+        bash_command=(
+            "/base/url/vmac/bin/python "
+            "/base/url/stock.py "
+            "--execution_date {{ ds }}"
+        ),
+    )
+
+    # 🔥 VALIDATION TASKS (REAL SYNC BARRIER)
+
+    validate_rtv = PythonOperator(
+        task_id="validate_rtv",
+        python_callable=lambda: validate_dir(
+            "/base/url/store_rtv"
+        ),
+    )
+
+    validate_stock = PythonOperator(
+        task_id="validate_stock",
+        python_callable=lambda: validate_dir(
+            "/base/url/store_stocks"
+        ),
     )
 
     weekly_reports = BashOperator(
         task_id="weekly_reports",
-        bash_command="/home/base/sales_analysis_algorithm/vmac/bin/python /home/base/sales_analysis_algorithm/weekly_reports.py "
+        trigger_rule="all_success",
+        bash_command=(
+            "/base/url/vmac/bin/python "
+            "/base/url/weekly_llm.py "
+        ),
     )
 
     weekly_mail = BashOperator(
         task_id="weekly_mail",
         retries=2,
         retry_delay=timedelta(minutes=5),
-        bash_command="/home/base/sales_analysis_algorithm/vmac/bin/python /home/base/sales_analysis_algorithm/mail.py "
+        bash_command=(
+            "/base/url/vmac/bin/python "
+            "/base/url/mail.py "
+        ),
     )
 
     skip_weekly = EmptyOperator(task_id="skip_weekly")
 
-    # ---------------- MONTHLY ----------------
+    # ──────────────────────────── MONTHLY ────────────────────────────
 
     monthly_branch = BranchPythonOperator(
         task_id="check_monthly",
-        python_callable=check_monthly
+        python_callable=check_monthly,
+        trigger_rule="none_failed_min_one_success",
     )
 
     monthly_reports = BashOperator(
         task_id="monthly_reports",
-        bash_command="/home/base/sales_analysis_algorithm/vmac/bin/python /home/base/sales_analysis_algorithm/monthly_reports.py "
+        trigger_rule="none_failed_min_one_success",
+        bash_command=(
+            "/base/url/vmac/bin/python "
+            "/base/url/monthly_llm.py "
+        ),
     )
 
     monthly_mail = BashOperator(
         task_id="monthly_mail",
         retries=2,
         retry_delay=timedelta(minutes=5),
-        bash_command="/home/base/etl/vmac/bin/python /home/base/sales_analysis_algorithm/monthly_mail.py "
+        trigger_rule="none_failed_min_one_success",
+        bash_command=(
+            "/base/url/vmac/bin/python "
+            "/base/url/monthly_mail.py "
+        ),
     )
 
     skip_monthly = EmptyOperator(task_id="skip_monthly")
 
-    # ---------------- DEPENDENCIES ----------------
+    # ──────────────────────────── DEPENDENCIES ────────────────────────────
 
-    # Daily core chain
-    etl >> product_update >> analysis >> daily_whatsapp
+    # DAILY FLOW
+    etl >> product_update >> weekly_branch
 
-    # Weekly chain
-    daily_whatsapp >> weekly_branch
-    weekly_branch >> weekly_reports >> weekly_mail
+    # WEEKLY FLOW (PARALLEL + HARD VALIDATION)
+
+    weekly_branch >> [rtv_report, stock]
     weekly_branch >> skip_weekly
 
-    # Monthly chain
-    daily_whatsapp >> monthly_branch
+    rtv_report >> validate_rtv
+    stock >> validate_stock
+
+    # TRUE SYNC POINT
+    [validate_rtv, validate_stock] >> weekly_reports
+
+    weekly_reports >> weekly_mail >> monthly_branch
+    skip_weekly >> monthly_branch
+
+    # MONTHLY FLOW
     monthly_branch >> monthly_reports >> monthly_mail
     monthly_branch >> skip_monthly
