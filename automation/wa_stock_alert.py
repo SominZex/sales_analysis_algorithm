@@ -3,23 +3,24 @@ wa_stock_alert.py
 ─────────────────────────────────────────────────────────────────────────────
 Reads per-store stock CSVs (from store_stocks/), computes the same low-stock
 and negative-stock intelligence used by the weekly PDF report, and sends a
-plain-text WhatsApp alert to each store's business partner via the WhatsApp
-Business API (Cloud API / graph.facebook.com).
+plain-text WhatsApp alert to each store's business partner via the Twilio
+WhatsApp API.
 
 Prerequisites
 ─────────────
-pip install requests pandas python-dotenv
+pip install twilio pandas python-dotenv
 
 .env variables required
 ───────────────────────
-WA_TOKEN          = <your permanent or temporary access token>
-WA_PHONE_ID       = <your WhatsApp Business phone number ID>
+TWILIO_ACCOUNT_SID  = ACxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx
+TWILIO_AUTH_TOKEN   = your_auth_token
+TWILIO_WA_FROM      = whatsapp:+14155238886   (Twilio sandbox or approved number)
 
 Optional .env overrides
 ───────────────────────
-STOCK_DIR         = store_stocks       (default)
-PARTNER_FILE      = partner.csv        (default)
-LOW_STOCK_THRESHOLD = 5                (default)
+STOCK_DIR           = store_stocks       (default)
+PARTNER_FILE        = partner.csv        (default)
+LOW_STOCK_THRESHOLD = 5                  (default)
 
 Run
 ───
@@ -29,17 +30,17 @@ python wa_stock_alert.py
 import os
 import re
 import time
-import requests
 import pandas as pd
 from collections import Counter
 from dotenv import load_dotenv
+from twilio.rest import Client
 
 load_dotenv()
 
 # ── Config ────────────────────────────────────────────────────────────────────
-WA_TOKEN            = os.getenv("WA_TOKEN", "")
-WA_PHONE_ID         = os.getenv("WA_PHONE_ID", "")
-WA_API_URL          = f"https://graph.facebook.com/v19.0/{WA_PHONE_ID}/messages"
+TWILIO_ACCOUNT_SID  = os.getenv("TWILIO_ACCOUNT_SID", "")
+TWILIO_AUTH_TOKEN   = os.getenv("TWILIO_AUTH_TOKEN", "")
+TWILIO_WA_FROM      = os.getenv("TWILIO_WA_FROM", "whatsapp:+14155238886")  # sandbox default
 
 STOCK_DIR           = os.getenv("STOCK_DIR", "store_stocks")
 PARTNER_FILE        = os.getenv("PARTNER_FILE", "partner.csv")
@@ -53,11 +54,14 @@ SEND_DELAY = 2
 
 def _normalise_wa_number(raw: str) -> str:
     """
-    Strip spaces, dashes, parentheses and leading '+'.
-    WhatsApp Cloud API expects digits only, e.g. '919876543210'.
+    Normalise to Twilio WhatsApp format: 'whatsapp:+919876543210'
+    Accepts numbers with or without country code, spaces, dashes, parentheses.
     """
-    number = re.sub(r"[\s\-\(\)+]", "", str(raw))
-    return number
+    digits = re.sub(r"[\s\-\(\)]", "", str(raw))
+    # Ensure it starts with + for E.164 format
+    if not digits.startswith("+"):
+        digits = "+" + digits
+    return f"whatsapp:{digits}"
 
 
 def _load_stock_csv(store_name: str) -> pd.DataFrame:
@@ -209,33 +213,83 @@ def build_message(store_name: str, df: pd.DataFrame, threshold: float) -> str:
 # ── WhatsApp sender ───────────────────────────────────────────────────────────
 
 def send_whatsapp(wa_number: str, message: str) -> bool:
-    """Send a plain-text WhatsApp message via the Cloud API. Returns True on success."""
-    if not WA_TOKEN or not WA_PHONE_ID:
+    """Send a plain-text WhatsApp message via Twilio. Returns True on success."""
+    if not TWILIO_ACCOUNT_SID or not TWILIO_AUTH_TOKEN:
         raise RuntimeError(
-            "WA_TOKEN and WA_PHONE_ID must be set in .env before sending."
+            "TWILIO_ACCOUNT_SID and TWILIO_AUTH_TOKEN must be set in .env before sending."
+        )
+    try:
+        client = Client(TWILIO_ACCOUNT_SID, TWILIO_AUTH_TOKEN)
+        msg = client.messages.create(
+            from_=TWILIO_WA_FROM,
+            to=wa_number,
+            body=message,
+        )
+        # Twilio returns a status — 'queued' or 'sent' are both success
+        if msg.sid:
+            return True
+        return False
+    except Exception as e:
+        print(f"    ❌ Twilio error: {e}")
+        return False
+
+
+# ── Weekly report link sender ─────────────────────────────────────────────────
+
+def send_report_links():
+    """
+    Reads the pdf_link column from partner.csv and sends each store's
+    PDF report link to its business partner via WhatsApp.
+    Skips rows where pdf_link is empty or missing.
+    """
+    if not os.path.exists(PARTNER_FILE):
+        print(f"⚠️  {PARTNER_FILE} not found — skipping report link delivery.")
+        return
+
+    partners = pd.read_csv(PARTNER_FILE)
+
+    if "pdf_link" not in partners.columns:
+        print("⚠️  No 'pdf_link' column found in partner.csv — skipping report link delivery.")
+        return
+
+    # Only rows that have both a wa_number and a pdf_link
+    sendable = partners.dropna(subset=["wa_number", "pdf_link"])
+    sendable = sendable[sendable["pdf_link"].str.strip() != ""]
+
+    if sendable.empty:
+        print("ℹ️  No PDF links found in partner.csv — skipping report link delivery.")
+        return
+
+    print(f"\n📎 Sending weekly report links to {len(sendable)} partner(s)...\n")
+
+    sent = skipped = failed = 0
+
+    for _, row in sendable.iterrows():
+        store_name = str(row["storeName"])
+        wa_number  = _normalise_wa_number(row["wa_number"])
+        pdf_link   = str(row["pdf_link"]).strip()
+
+        message = (
+            f"📊 *Weekly Store Report — {store_name}*\n"
+            f"_{pd.Timestamp.today().strftime('%d %b %Y')}_\n\n"
+            f"Your weekly performance report is ready.\n"
+            f"Tap the link below to view or download it:\n\n"
+            f"{pdf_link}\n\n"
+            f"_This link is valid for 7 days._"
         )
 
-    payload = {
-        "messaging_product": "whatsapp",
-        "to": wa_number,
-        "type": "text",
-        "text": {"body": message},
-    }
-    headers = {
-        "Authorization": f"Bearer {WA_TOKEN}",
-        "Content-Type": "application/json",
-    }
-
-    try:
-        r = requests.post(WA_API_URL, json=payload, headers=headers, timeout=15)
-        if r.status_code == 200:
-            return True
+        print(f"▶ {store_name} → {wa_number}")
+        success = send_whatsapp(wa_number, message)
+        if success:
+            print(f"  ✅ Report link sent.\n")
+            sent += 1
         else:
-            print(f"    ❌ API error {r.status_code}: {r.text[:200]}")
-            return False
-    except requests.RequestException as e:
-        print(f"    ❌ Request failed: {e}")
-        return False
+            print(f"  ❌ Failed to send report link.\n")
+            failed += 1
+
+        time.sleep(SEND_DELAY)
+
+    print(f"📊 Report links — {sent} sent, {failed} failed, {skipped} skipped.")
 
 
 # ── Main ──────────────────────────────────────────────────────────────────────
@@ -295,6 +349,10 @@ def main():
         f"\n📊 Done — {sent} sent, {no_alert} no alert needed, "
         f"{skipped} skipped (no CSV)."
     )
+
+    # ── Send weekly PDF report links ──────────────────────────────────────────
+    print("\n" + "─" * 60)
+    send_report_links()
 
 
 if __name__ == "__main__":

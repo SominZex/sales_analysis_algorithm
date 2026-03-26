@@ -4,12 +4,15 @@ import plotly.graph_objects as go
 import base64
 import os
 import time
+import tempfile
 from io import BytesIO
+from datetime import datetime, timezone, timedelta
 from sqlalchemy import create_engine
 from sqlalchemy.exc import OperationalError
 from llm_recommender import save_weekly_snapshot
 from sqlalchemy.pool import NullPool
 from dotenv import load_dotenv
+from azure.storage.blob import BlobServiceClient, ContentSettings, generate_blob_sas, BlobSasPermissions
 
 from llm_recommender import (
     brand_recommendation,
@@ -26,7 +29,7 @@ from llm_recommender import (
 # Directory where stock.py saves per-store CSVs (relative or absolute path)
 # ───────────────────────── PATH CONFIG (CRITICAL FIX) ─────────────────────────
 
-BASE_DIR = "/base/url"
+BASE_DIR = "/home/azureuser/azure_analysis_algorithm"
 
 STOCK_DIR = os.getenv(
     "STOCK_DIR",
@@ -39,6 +42,15 @@ RTV_DIR = os.getenv(
 )
 
 LOW_STOCK_THRESHOLD = float(os.getenv("LOW_STOCK_THRESHOLD", "5"))
+
+# ── Azure Blob Storage ────────────────────────────────────────────────────────
+AZURE_ACCOUNT_NAME      = os.getenv("AZURE_ACCOUNT_NAME", "")
+AZURE_ACCOUNT_KEY       = os.getenv("AZURE_ACCOUNT_KEY", "")
+AZURE_CONNECTION_STRING = os.getenv("AZURE_CONNECTION_STRING", "")
+AZURE_CONTAINER         = os.getenv("AZURE_CONTAINER", "weekly-reports")
+SAS_EXPIRY_DAYS = 7
+
+PARTNER_FILE = os.path.join(BASE_DIR, "partner.csv")
 
 print(f"📂 STOCK_DIR → {STOCK_DIR}")
 print(f"📂 RTV_DIR   → {RTV_DIR}")
@@ -645,7 +657,7 @@ def generate_store_report(store_name):
         </style>
     </head>
     <body>
-        <img src="file:///base/url/tns.png" class="logo" alt="Company Logo">
+        <img src="file:///home/azureuser/azure_analysis_algorithm/tns.png" class="logo" alt="Company Logo">
         <h1>📊 Weekly Store Report – {store_name}</h1>
         <div class="date-range">Week: {week_start_str} to {week_end_str}</div>
         <h2>Total Weekly Sales: ₹{total_weekly_sales:,.2f}</h2>
@@ -684,11 +696,54 @@ def generate_store_report(store_name):
     </html>
     """
 
-    # Save PDF
-    os.makedirs("/base/url/store_reports", exist_ok=True)
-    pdf_path = os.path.join("/base/url/store_reports", f"{store_name.replace(' ', '_')}_weekly_report.pdf")
-    pdfkit.from_string(html_template, pdf_path, configuration=PDFKIT_CONFIG, options={"enable-local-file-access": ""})
-    print(f"✅ Saved {store_name} report → {pdf_path}")
+    # ── Upload PDF to Azure Blob Storage ─────────────────────────────────────
+    blob_name = f"{store_name.replace(' ', '_')}_weekly_report.pdf"
+
+    with tempfile.NamedTemporaryFile(suffix=".pdf", delete=False) as tmp:
+        tmp_path = tmp.name
+
+    try:
+        pdfkit.from_string(html_template, tmp_path, configuration=PDFKIT_CONFIG, options={"enable-local-file-access": ""})
+
+        service_client = BlobServiceClient.from_connection_string(AZURE_CONNECTION_STRING)
+        container_client = service_client.get_container_client(AZURE_CONTAINER)
+        try:
+            container_client.create_container()
+        except Exception:
+            pass  # container already exists
+
+        blob_client = container_client.get_blob_client(blob_name)
+        with open(tmp_path, "rb") as f:
+            blob_client.upload_blob(f, overwrite=True, content_settings=ContentSettings(content_type="application/pdf"))
+
+        # Generate SAS link valid for SAS_EXPIRY_DAYS days
+        sas_token = generate_blob_sas(
+            account_name=AZURE_ACCOUNT_NAME,
+            container_name=AZURE_CONTAINER,
+            blob_name=blob_name,
+            account_key=AZURE_ACCOUNT_KEY,
+            permission=BlobSasPermissions(read=True),
+            expiry=datetime.now(timezone.utc) + timedelta(days=SAS_EXPIRY_DAYS),
+        )
+        shareable_url = (
+            f"https://{AZURE_ACCOUNT_NAME}.blob.core.windows.net"
+            f"/{AZURE_CONTAINER}/{blob_name}?{sas_token}"
+        )
+        print(f"✅ Uploaded {store_name} → {shareable_url}")
+
+        # ── Write shareable link to pdf_link column in partner.csv ───────────
+        if os.path.exists(PARTNER_FILE):
+            partner_df = pd.read_csv(PARTNER_FILE)
+            if "pdf_link" not in partner_df.columns:
+                partner_df["pdf_link"] = ""
+            partner_df.loc[partner_df["storeName"] == store_name, "pdf_link"] = shareable_url
+            partner_df.to_csv(PARTNER_FILE, index=False)
+            print(f"   💾 Link saved to partner.csv")
+        else:
+            print(f"   ⚠️  partner.csv not found at {PARTNER_FILE} — link not saved.")
+
+    finally:
+        os.remove(tmp_path)
 
 
 if __name__ == "__main__":
@@ -702,4 +757,4 @@ if __name__ == "__main__":
         except Exception as e:
             print(f"❌ Error generating report for {store}: {e}")
 
-    print("\n✅ All store reports generated successfully inside /store_reports/")
+    print("\n✅ All store reports uploaded to Azure Blob and links saved to partner.csv")
