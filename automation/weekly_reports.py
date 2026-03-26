@@ -10,6 +10,10 @@ from sqlalchemy import create_engine
 from sqlalchemy.exc import OperationalError
 from sqlalchemy.pool import NullPool
 from dotenv import load_dotenv
+from azure.storage.blob import BlobServiceClient, ContentSettings, generate_blob_sas, BlobSasPermissions
+from datetime import datetime, timezone, timedelta
+import tempfile
+
 
 from pyspark.sql import SparkSession
 from pyspark.sql import functions as F
@@ -32,6 +36,12 @@ from llm_recommender import (
 STOCK_DIR           = os.getenv("STOCK_DIR", "store_stocks")
 LOW_STOCK_THRESHOLD = float(os.getenv("LOW_STOCK_THRESHOLD", "5"))
 RTV_DIR             = os.getenv("RTV_DIR", "store_rtv")
+AZURE_ACCOUNT_NAME      = os.getenv("AZURE_ACCOUNT_NAME", "")
+AZURE_ACCOUNT_KEY       = os.getenv("AZURE_ACCOUNT_KEY", "")
+AZURE_CONNECTION_STRING = os.getenv("AZURE_CONNECTION_STRING", "")
+AZURE_CONTAINER         = os.getenv("AZURE_CONTAINER", "weekly-reports")
+
+SAS_EXPIRY_DAYS = 7
 
 load_dotenv()
 
@@ -911,17 +921,60 @@ def generate_store_report(spark, store_name: str):
     """
 
     # ── Step 14: Save PDF (unchanged) ─────────────────────────────────────────
-    os.makedirs("/home/azureuser/azure_analysis_algorithm/store_reports", exist_ok=True)
-    pdf_path = os.path.join(
-        "/home/azureuser/azure_analysis_algorithm/store_reports",
-        f"{store_name.replace(' ', '_')}_weekly_report.pdf"
-    )
-    pdfkit.from_string(
-        html_template, pdf_path,
-        configuration=PDFKIT_CONFIG,
-        options={"enable-local-file-access": ""}
-    )
-    print(f"✅ Saved {store_name} report → {pdf_path}")
+    # ── Upload PDF to Azure Blob Storage ─────────────────────────────
+
+    blob_name = f"{store_name.replace(' ', '_')}_weekly_report.pdf"
+
+    # Create temp file instead of saving locally
+    with tempfile.NamedTemporaryFile(suffix=".pdf", delete=False) as tmp:
+        tmp_path = tmp.name
+
+    try:
+        # Generate PDF in temp file
+        pdfkit.from_string(
+            html_template,
+            tmp_path,
+            configuration=PDFKIT_CONFIG,
+            options={"enable-local-file-access": ""}
+        )
+
+        # Upload to Azure Blob
+        service_client = BlobServiceClient.from_connection_string(AZURE_CONNECTION_STRING)
+        container_client = service_client.get_container_client(AZURE_CONTAINER)
+
+        try:
+            container_client.create_container()
+        except Exception:
+            pass  # already exists
+
+        blob_client = container_client.get_blob_client(blob_name)
+
+        with open(tmp_path, "rb") as f:
+            blob_client.upload_blob(
+                f,
+                overwrite=True,
+                content_settings=ContentSettings(content_type="application/pdf")
+            )
+
+        # Generate SAS URL
+        sas_token = generate_blob_sas(
+            account_name=AZURE_ACCOUNT_NAME,
+            container_name=AZURE_CONTAINER,
+            blob_name=blob_name,
+            account_key=AZURE_ACCOUNT_KEY,
+            permission=BlobSasPermissions(read=True),
+            expiry=datetime.now(timezone.utc) + timedelta(days=SAS_EXPIRY_DAYS),
+        )
+
+        shareable_url = (
+            f"https://{AZURE_ACCOUNT_NAME}.blob.core.windows.net/"
+            f"{AZURE_CONTAINER}/{blob_name}?{sas_token}"
+        )
+
+        print(f"✅ Uploaded {store_name} → {shareable_url}")
+
+    finally:
+        os.remove(tmp_path)
 
 
 # =============================================================================
@@ -943,4 +996,4 @@ if __name__ == "__main__":
             print(f"❌ Error generating report for {store}: {e}")
 
     spark.stop()
-    print("\n✅ All store reports generated successfully inside /store_reports/")
+    print("\n✅ All store reports generated successfully inside azure Blob Storage")
