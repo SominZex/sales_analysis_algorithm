@@ -577,7 +577,8 @@ chmod +x install_monitoring.sh
 Installs Prometheus, Pushgateway, Node Exporter, and Grafana as systemd services. Prometheus TSDB data is stored on `/mnt` to preserve root partition space.
 
 ### DAG Workflow
-![DAG](https://github.com/user-attachments/assets/1f1d2b17-9f75-4413-9dfb-3ce48698807b)
+<img width="1486" height="627" alt="pipeline_dag" src="https://github.com/user-attachments/assets/f1a7c457-eb36-4a0f-ac83-810e742eda84" />
+
 
 ---
 
