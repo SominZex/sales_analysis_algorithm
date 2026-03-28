@@ -1,5 +1,5 @@
 """
-azure_blob_report.py  —  Weekly Store Report Generator
+weekly_azure_llm.py  —  Weekly Store Report Generator
 ────────────────────────────────────────────────────────────────────────────────
 Reads precomputed data from Azure Blob cache (report_cache.py) instead of
 running heavy SQL queries per store. Falls back to direct DB queries if cache
@@ -13,6 +13,9 @@ Fixes applied:
   [5]  plot_chart() docstring warns against passing %-suffixed columns
   [6]  Cache-first data loading — 700 SQL queries → 5 Parquet reads total
   [7]  Dummy Store and Ho Marlboro excluded from store list
+  [8]  pandas removed from hot path — DuckDB used for all cache filtering;
+       pandas kept only for stock CSV reads and partner.csv (local files,
+       not bottlenecks)
 ────────────────────────────────────────────────────────────────────────────────
 """
 
@@ -20,21 +23,25 @@ Fixes applied:
 from dotenv import load_dotenv
 load_dotenv()
 
-import pandas as pd
-import pdfkit
-import plotly.graph_objects as go
-import base64
 import os
 import time
 import tempfile
+import csv
 from io import BytesIO
 from datetime import datetime, timezone, timedelta
+
+import duckdb
+import pandas as pd                  # kept for: load_stock_lookups (CSV), partner.csv
+import pdfkit
+import plotly.graph_objects as go
+import base64
 from sqlalchemy import create_engine
 from sqlalchemy.exc import OperationalError
 from sqlalchemy.pool import NullPool
 from azure.storage.blob import BlobServiceClient, ContentSettings, generate_blob_sas, BlobSasPermissions
-from azure.core.exceptions import ResourceExistsError   # [FIX 3]
-import report_cache                                      # [FIX 6]
+from azure.core.exceptions import ResourceExistsError
+import report_cache
+
 
 from llm_recommender import (
     save_weekly_snapshot,
@@ -48,7 +55,7 @@ from llm_recommender import (
 )
 
 
-BASE_DIR  = "/base/dir/"
+BASE_DIR  = "/base/dir"
 STOCK_DIR = os.getenv("STOCK_DIR", os.path.join(BASE_DIR, "store_stocks"))
 RTV_DIR   = os.getenv("RTV_DIR",   os.path.join(BASE_DIR, "store_rtv"))
 LOW_STOCK_THRESHOLD = float(os.getenv("LOW_STOCK_THRESHOLD", "5"))
@@ -143,8 +150,7 @@ def get_unique_stores():
     Weekly reports are currently scoped to partner stores — adjust the
     IN list or remove the WHERE clause to run for all stores.
     """
-    excl = tuple(EXCLUDED_STORES)
-
+    excl  = tuple(EXCLUDED_STORES)
     query = f"""
         SELECT DISTINCT "storeName"
         FROM "billing_data"
@@ -156,7 +162,25 @@ def get_unique_stores():
 
 
 # =============================================================================
-# Stock helpers (unchanged)
+# DuckDB cache query helper  [FIX 8]
+# =============================================================================
+
+def _make_cache_con(cache: dict) -> duckdb.DuckDBPyConnection:
+    """
+    Create an in-process DuckDB connection and register all PyArrow Tables
+    from the cache dict as virtual tables. Callers query them with plain SQL.
+    The connection is cheap (in-memory, no Postgres attach needed here).
+    """
+    con = duckdb.connect()
+    for table_name, arrow_table in cache.items():
+        if table_name == "meta":
+            continue
+        con.register(table_name, arrow_table)
+    return con
+
+
+# =============================================================================
+# Stock helpers — pandas kept here (CSV is a local file, not a bottleneck)
 # =============================================================================
 
 def load_stock_lookups(store_name: str):
@@ -170,9 +194,9 @@ def load_stock_lookups(store_name: str):
             try:
                 df = pd.read_csv(path)
                 df["quantity"] = pd.to_numeric(df["quantity"], errors="coerce").fillna(0)
-                brand_stock    = df.groupby("brand")["quantity"].sum().to_dict()    if "brand"       in df.columns else {}
-                category_stock = df.groupby("categoryName")["quantity"].sum().to_dict() if "categoryName" in df.columns else {}
-                product_stock  = df.set_index("productName")["quantity"].to_dict() if "productName"  in df.columns else {}
+                brand_stock    = df.groupby("brand")["quantity"].sum().to_dict()         if "brand"        in df.columns else {}
+                category_stock = df.groupby("categoryName")["quantity"].sum().to_dict()  if "categoryName" in df.columns else {}
+                product_stock  = df.set_index("productName")["quantity"].to_dict()       if "productName"  in df.columns else {}
                 print(f"Stock CSV loaded for {store_name} "
                       f"({len(df)} SKUs, {len(brand_stock)} brands, {len(category_stock)} categories)")
                 return brand_stock, category_stock, product_stock
@@ -183,30 +207,54 @@ def load_stock_lookups(store_name: str):
     return {}, {}, {}
 
 
-def inject_stock_column(df: pd.DataFrame, name_col: str, stock_lookup: dict) -> pd.DataFrame:
-    if df.empty:
-        return df
-    df = df.copy()
-    df["current_stock"] = df[name_col].map(stock_lookup)
-    cols = list(df.columns)
-    cols.remove("current_stock")
-    if "quantity_sold" in cols:
-        cols.insert(cols.index("quantity_sold") + 1, "current_stock")
-    return df[cols]
+# =============================================================================
+# inject_stock_column — now works on list-of-dicts rows  [FIX 8]
+# =============================================================================
+
+def inject_stock_column(rows: list[dict], name_col: str, stock_lookup: dict) -> list[dict]:
+    """
+    Add a 'current_stock' key into each row dict, inserted after 'quantity_sold'.
+    Returns a new list — original rows are not mutated.
+    """
+    if not rows:
+        return rows
+    result = []
+    for row in rows:
+        r = dict(row)
+        r["current_stock"] = stock_lookup.get(r.get(name_col))
+        result.append(r)
+
+    # Reorder keys: insert current_stock after quantity_sold
+    if result:
+        keys = list(result[0].keys())
+        if "current_stock" in keys and "quantity_sold" in keys:
+            keys.remove("current_stock")
+            idx = keys.index("quantity_sold") + 1
+            keys.insert(idx, "current_stock")
+        result = [{k: r[k] for k in keys} for r in result]
+    return result
 
 
-def df_to_html_with_stock(df: pd.DataFrame) -> str:
-    if df.empty:
+# =============================================================================
+# HTML table builder — plain Python, no pandas  [FIX 8]
+# =============================================================================
+
+def df_to_html_with_stock(rows: list[dict]) -> str:
+    """
+    Build an HTML table from a list-of-dicts.
+    Mirrors the original df_to_html_with_stock() output exactly.
+    """
+    if not rows:
         return ""
-    df      = df.copy()
-    headers = "".join(f"<th>{COLUMN_LABELS.get(c, c)}</th>" for c in df.columns)
+    cols    = list(rows[0].keys())
+    headers = "".join(f"<th>{COLUMN_LABELS.get(c, c)}</th>" for c in cols)
     rows_html = []
-    for _, row in df.iterrows():
+    for row in rows:
         cells = []
-        for col in df.columns:
+        for col in cols:
             val = row[col]
             if col == "current_stock":
-                if pd.isna(val):
+                if val is None:
                     cells.append("<td>N/A</td>")
                 else:
                     val_num = float(val)
@@ -223,19 +271,25 @@ def df_to_html_with_stock(df: pd.DataFrame) -> str:
     )
 
 
-def plot_chart(df, x_col, y_col, title, top_n=10):
+# =============================================================================
+# plot_chart — accepts list-of-dicts  [FIX 8]
+# =============================================================================
+
+def plot_chart(rows: list[dict], x_col: str, y_col: str, title: str, top_n: int = 10) -> str:
     """
     Generate a Plotly bar chart and return a base64 image string.
     NOTE: y_col must be numeric. Do NOT pass columns after the '%' suffix
     has been appended (contrib_percent, profit_margin) — pass them before.
     """
-    if df.empty:
+    if not rows:
         return ""
-    df_plot = df.head(top_n)
+    top = rows[:top_n]
+    x_vals = [r[x_col] for r in top]
+    y_vals = [float(r[y_col]) for r in top]
     fig = go.Figure(data=[go.Bar(
-        x=df_plot[x_col],
-        y=df_plot[y_col],
-        text=[f"₹{v:,.0f}" for v in df_plot[y_col]],
+        x=x_vals,
+        y=y_vals,
+        text=[f"₹{v:,.0f}" for v in y_vals],
         textposition="outside",
         marker=dict(color="#0078d7"),
     )])
@@ -262,7 +316,6 @@ def _upload_pdf_to_blob(tmp_path: str, blob_name: str) -> str:
     service_client   = BlobServiceClient.from_connection_string(AZURE_CONNECTION_STRING)
     container_client = service_client.get_container_client(AZURE_CONTAINER)
 
-    # [FIX 3] Catch only ResourceExistsError, not all exceptions
     try:
         container_client.create_container()
     except ResourceExistsError:
@@ -290,10 +343,10 @@ def _upload_pdf_to_blob(tmp_path: str, blob_name: str) -> str:
 
 
 # =============================================================================
-# MAIN REPORT FUNCTION
+# MAIN REPORT FUNCTION  [FIX 8 — pandas removed from hot path]
 # =============================================================================
 
-def generate_store_report(store_name: str, cache: dict) -> str | None:
+def generate_store_report(store_name: str, cache: dict, cache_con: duckdb.DuckDBPyConnection) -> str | None:
     """
     Generate weekly PDF for one store. Returns shareable SAS URL or None on failure.
 
@@ -301,7 +354,9 @@ def generate_store_report(store_name: str, cache: dict) -> str | None:
     ----------
     store_name : Store to generate report for.
     cache      : Preloaded dict from report_cache.load_weekly_cache().
-                 All DataFrames cover ALL stores; we filter to this store here.
+                 Values are PyArrow Tables covering ALL stores.
+    cache_con  : Shared DuckDB connection with all cache tables registered.
+                 Filter queries run here — no pandas, no per-store DB round-trips.
     """
 
     # ── [FIX 2] Assign week_start default before any conditional ─────────────
@@ -309,62 +364,82 @@ def generate_store_report(store_name: str, cache: dict) -> str | None:
     week_start_str = "N/A"
     week_end_str   = "N/A"
 
-    # ── Pull store row from cache: store_summary ──────────────────────────────
-    summary_all = cache["store_summary"]
-    summary_row = summary_all[summary_all["storeName"] == store_name]
+    # ── Pull store row from cache: store_summary (DuckDB query) ──────────────
+    summary_rows = cache_con.execute(
+        "SELECT * FROM store_summary WHERE storeName = ?", [store_name]
+    ).fetchall()
+    summary_cols = [d[0] for d in cache_con.description]
 
-    if summary_row.empty:
+    if not summary_rows:
         print(f"  ⚠ No data for {store_name} in cache — skipping.")
         return None
 
-    total_weekly_sales        = float(summary_row["total_weekly_sales"].iloc[0]        or 0.0)
-    total_weekly_cost         = float(summary_row["total_weekly_cost"].iloc[0]         or 0.0)
-    total_weekly_profit       = float(summary_row["total_weekly_profit"].iloc[0]       or 0.0)
-    avg_profit_margin_percent = float(summary_row["avg_profit_margin_percent"].iloc[0] or 0.0)
+    summary = dict(zip(summary_cols, summary_rows[0]))
+    total_weekly_sales        = float(summary.get("total_weekly_sales")        or 0.0)
+    total_weekly_cost         = float(summary.get("total_weekly_cost")         or 0.0)
+    total_weekly_profit       = float(summary.get("total_weekly_profit")       or 0.0)
+    avg_profit_margin_percent = float(summary.get("avg_profit_margin_percent") or 0.0)
 
-    # ── Derive week dates from cache (stored during cache build) ──────────────
-    # The cache blob prefix encodes week_start; we pass it in via cache meta.
+    # ── Derive week dates from cache meta ────────────────────────────────────
     if "meta" in cache and "week_start" in cache["meta"]:
         week_start     = cache["meta"]["week_start"]
         week_end       = cache["meta"]["week_end"]
         week_start_str = week_start.strftime('%d %b %Y')
         week_end_str   = week_end.strftime('%d %b %Y')
 
-    # Guard: if week_start never resolved, skip LLM calls safely  [FIX 2]
     if week_start is None:
         print(f"  ⚠ Could not resolve week dates for {store_name} — skipping.")
         return None
 
     # ── comparison ────────────────────────────────────────────────────────────
-    comp_all = cache["comparison"]
-    comp_row = comp_all[comp_all["storeName"] == store_name]
+    comp_rows = cache_con.execute(
+        "SELECT * FROM comparison WHERE storeName = ?", [store_name]
+    ).fetchall()
+    comp_cols = [d[0] for d in cache_con.description]
 
     comparison_text = '<div style="text-align:center;margin-top:10px;"><span style="font-size:18px;color:#666;">Insufficient data for comparison</span></div>'
-    if not comp_row.empty:
-        curr    = float(comp_row["current_week_sales"].iloc[0] or 0.0)
-        prev    = float(comp_row["prev_2_weeks_avg"].iloc[0]   or 0.0)
+    if comp_rows:
+        comp = dict(zip(comp_cols, comp_rows[0]))
+        curr = float(comp.get("current_week_sales") or 0.0)
+        prev = float(comp.get("prev_2_weeks_avg")   or 0.0)
         if prev > 0:
-            pct       = ((curr - prev) / prev) * 100
-            sign      = "+" if pct >= 0 else ""
-            color     = "#28a745" if pct >= 0 else "#dc3545"
+            pct   = ((curr - prev) / prev) * 100
+            sign  = "+" if pct >= 0 else ""
+            color = "#28a745" if pct >= 0 else "#dc3545"
             comparison_text = f"""
                 <div style="text-align:center;margin-top:10px;">
                     <span style="font-size:18px;color:#666;">Previous 2 Weeks Average: ₹{prev:,.2f}</span><br>
                     <span style="font-size:20px;font-weight:bold;color:{color};">{sign}{pct:.2f}%</span>
                 </div>"""
 
-    # ── brand / category / product — filter from full-cache DataFrames ────────
-    brand_df    = cache["brand_sales"][cache["brand_sales"]["storeName"]       == store_name].drop(columns=["storeName"]).head(50).reset_index(drop=True)
-    category_df = cache["category_sales"][cache["category_sales"]["storeName"] == store_name].drop(columns=["storeName"]).head(50).reset_index(drop=True)
-    product_df  = cache["product_sales"][cache["product_sales"]["storeName"]   == store_name].drop(columns=["storeName"]).head(100).reset_index(drop=True)
+    # ── brand / category / product — DuckDB filter, return list-of-dicts ─────
+    def _fetch_rows(table: str, name_col: str, limit: int) -> list[dict]:
+        rows = cache_con.execute(f"""
+            SELECT * EXCLUDE (storeName)
+            FROM {table}
+            WHERE storeName = ?
+            ORDER BY total_sales DESC
+            LIMIT {limit}
+        """, [store_name]).fetchall()
+        cols = [d[0] for d in cache_con.description]
+        return [dict(zip(cols, r)) for r in rows]
+
+    brand_rows    = _fetch_rows("brand_sales",    "brandName",    50)
+    category_rows = _fetch_rows("category_sales", "categoryName", 50)
+    product_rows  = _fetch_rows("product_sales",  "productName",  100)
 
     # ── Stock lookups ─────────────────────────────────────────────────────────
     brand_stock_lookup, category_stock_lookup, product_stock_lookup = load_stock_lookups(store_name)
-    brand_df    = inject_stock_column(brand_df,    "brandName",    brand_stock_lookup)
-    category_df = inject_stock_column(category_df, "categoryName", category_stock_lookup)
-    product_df  = inject_stock_column(product_df,  "productName",  product_stock_lookup)
+    brand_rows    = inject_stock_column(brand_rows,    "brandName",    brand_stock_lookup)
+    category_rows = inject_stock_column(category_rows, "categoryName", category_stock_lookup)
+    product_rows  = inject_stock_column(product_rows,  "productName",  product_stock_lookup)
 
-    # ── LLM calls (before % suffix) ───────────────────────────────────────────
+    # ── LLM calls — pass list-of-dicts (before % suffix) ─────────────────────
+    # Convert to pandas only here because llm_recommender expects DataFrames
+    brand_df    = pd.DataFrame(brand_rows)
+    category_df = pd.DataFrame(category_rows)
+    product_df  = pd.DataFrame(product_rows)
+
     print(f"  Generating LLM recommendations for {store_name}...")
     brand_rec    = brand_recommendation(store_name, brand_df,    total_weekly_sales, week_start=week_start, engine=engine, report_type="weekly")
     category_rec = category_recommendation(store_name, category_df, total_weekly_sales, week_start=week_start, engine=engine, report_type="weekly")
@@ -381,21 +456,21 @@ def generate_store_report(store_name: str, cache: dict) -> str | None:
     # Snapshot saved with numeric data — before % suffix  [ordering preserved]
     save_weekly_snapshot(store_name, week_start, brand_df, category_df, product_df, engine)
 
-    # ── % suffix (AFTER LLM + snapshot) ──────────────────────────────────────
-    for df in [brand_df, category_df, product_df]:
-        if not df.empty:
+    # ── % suffix on rows (AFTER LLM + snapshot) ───────────────────────────────
+    for rows in [brand_rows, category_rows, product_rows]:
+        for row in rows:
             for col in ["contrib_percent", "profit_margin"]:
-                if col in df.columns:
-                    df[col] = df[col].astype(str) + "%"
+                if col in row and row[col] is not None:
+                    row[col] = str(row[col]) + "%"
 
-    # ── Charts (total_sales is still numeric) ─────────────────────────────────
-    brand_chart    = plot_chart(brand_df,    "brandName",    "total_sales", "Top 10 Brands by Sales")
-    category_chart = plot_chart(category_df, "categoryName", "total_sales", "Top 10 Categories by Sales")
-    product_chart  = plot_chart(product_df,  "productName",  "total_sales", "Top 10 Products by Sales")
+    # ── Charts — y_col still numeric in rows before suffix ────────────────────
+    brand_chart    = plot_chart(brand_rows,    "brandName",    "total_sales", "Top 10 Brands by Sales")
+    category_chart = plot_chart(category_rows, "categoryName", "total_sales", "Top 10 Categories by Sales")
+    product_chart  = plot_chart(product_rows,  "productName",  "total_sales", "Top 10 Products by Sales")
 
-    brand_table_html    = df_to_html_with_stock(brand_df)
-    category_table_html = df_to_html_with_stock(category_df)
-    product_table_html  = df_to_html_with_stock(product_df)
+    brand_table_html    = df_to_html_with_stock(brand_rows)
+    category_table_html = df_to_html_with_stock(category_rows)
+    product_table_html  = df_to_html_with_stock(product_rows)
 
     # ── HTML ──────────────────────────────────────────────────────────────────
     html_template = f"""
@@ -421,7 +496,7 @@ def generate_store_report(store_name: str, cache: dict) -> str | None:
         </style>
     </head>
     <body>
-        <img src="file:///base/dir//tns.png" class="logo" alt="Company Logo">
+        <img src="file:///base/dir/tns.png" class="logo" alt="Company Logo">
         <h1>📊 Weekly Store Report – {store_name}</h1>
         <div class="date-range">Week: {week_start_str} to {week_end_str}</div>
         <h2>Total Weekly Sales: ₹{total_weekly_sales:,.2f}</h2>
@@ -494,37 +569,29 @@ if __name__ == "__main__":
         print(f"⚠ Cache unavailable ({e}) — run report_cache.py first.")
         raise SystemExit(1)
 
-    store_names = [
-        s for s in cache["store_summary"]["storeName"].tolist()
-        if s not in EXCLUDED_STORES                             # [FIX 7]
-    ]
+    # ── Build ONE shared DuckDB connection for all store queries  [FIX 8] ────
+    cache_con = _make_cache_con(cache)
+
+    store_names = cache_con.execute(
+        "SELECT storeName FROM store_summary ORDER BY storeName"
+    ).fetchall()
+    store_names = [r[0] for r in store_names if r[0] not in EXCLUDED_STORES]
+
     print(f"Found {len(store_names)} stores.\nGenerating reports...\n")
 
     # ── Generate all reports — collect URLs ───────────────────────────────────
-    pdf_links: dict[str, str] = {}     # storeName → SAS URL
-
-    # store_names = [
-    #     s for s in cache["store_summary"]["storeName"].tolist()
-    #     if s not in EXCLUDED_STORES
-    # ]
-
-    # print(f"Found {len(store_names)} stores.\nGenerating reports...\n")
-
-    # # --- TEST MODE ---
-    # TEST_STORE = "Adchini Aurobindo Marg"   # 👈 put real store name
-
-    # if TEST_STORE:
-    #     print(f"\n⚠ TEST MODE: Running only for → {TEST_STORE}\n")
-    #     store_names = [TEST_STORE] if TEST_STORE in store_names else []
+    pdf_links: dict[str, str] = {}
 
     for store in store_names:
         try:
-            url = generate_store_report(store, cache)
+            url = generate_store_report(store, cache, cache_con)
             if url:
                 pdf_links[store] = url
             time.sleep(1)
         except Exception as e:
             print(f"  ✗ Error generating report for {store}: {e}")
+
+    cache_con.close()
 
     # ── [FIX 4] Write partner.csv ONCE after all stores are done ─────────────
     if pdf_links and os.path.exists(PARTNER_FILE):

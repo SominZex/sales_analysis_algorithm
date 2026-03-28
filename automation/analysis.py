@@ -28,6 +28,7 @@ from email import encoders
 from playwright.async_api import async_playwright
 import psycopg2
 import uuid
+from concurrent.futures import ThreadPoolExecutor
 from werkzeug.serving import make_server
 import os
 from dotenv import load_dotenv
@@ -76,8 +77,8 @@ EMAIL_CONFIG = {
     'smtp_port': 465,
     'sender_email': 'sender@gmail.com',
     'sender_password': 'app_pw',
-    'to': 'receiver@anymail.com',
-    'cc_recipients': ['cc@recepient.com'],
+    'to': 'mail@mail.in',
+    'cc_recipients': ['mail@mail.in'],
     'tracking_host': 'http://<ip>:8000',
     'summary_recipient': 'any@mail.in'
 }
@@ -608,8 +609,125 @@ def log_event(recipient, report_date, event):
     conn.close()
 
 
+# =============================================================================
+# CALLBACK — all 5 DB fetches run in parallel via ThreadPoolExecutor
+# =============================================================================
+
+@app.callback(
+    [Output('store-table-left', 'data'),
+     Output('store-table-right', 'data'),
+     Output('store-sales-chart', 'figure'),
+     Output('category-table-left', 'data'),
+     Output('category-table-right', 'data'),
+     Output('category-sales-chart', 'figure'),
+     Output('brand-table-left', 'data'),
+     Output('brand-table-right', 'data'),
+     Output('brand-sales-chart', 'figure'),
+     Output('product-table-left', 'data'),
+     Output('product-table-right', 'data'),
+     Output('product-sales-chart', 'figure'),
+     Output('last-date-display', 'children'),
+     Output('total-sales-display', 'children'),
+     Output("weekly-growth-display", "children")],
+
+    [Input('date-picker', 'start_date'),
+     Input('date-picker', 'end_date')]
+)
+def update_tables(start_date, end_date):
+    try:
+        # Convert string dates to datetime if necessary
+        if isinstance(start_date, str):
+            start_date = pd.to_datetime(start_date)
+        if isinstance(end_date, str):
+            end_date = pd.to_datetime(end_date)
+
+        # ── Fire all 5 DB queries in parallel ─────────────────────────────────
+        # Previously these ran sequentially (total latency = sum of all queries).
+        # Now they run concurrently; total latency ≈ slowest single query.
+        with ThreadPoolExecutor(max_workers=5) as pool:
+            f_store    = pool.submit(fetch_sales_data,      start_date, end_date)
+            f_category = pool.submit(fetch_subcategory_data, start_date, end_date)
+            f_brand    = pool.submit(fetch_brand_data,       start_date, end_date)
+            f_product  = pool.submit(fetch_product_data,     start_date, end_date)
+            f_totals   = pool.submit(fetch_total_sales)
+
+            store_data, chart_data = f_store.result()
+            category_data          = f_category.result()
+            brand_data             = f_brand.result()
+            product_data           = f_product.result()
+            total_sales, weekly_growth = f_totals.result()
+
+        # ── Split tables ───────────────────────────────────────────────────────
+        mid_store    = len(store_data)    // 2
+        mid_category = len(category_data) // 2
+        mid_brand    = len(brand_data)    // 2
+        mid_product  = len(product_data)  // 2
+
+        store_left    = store_data.iloc[:mid_store]
+        store_right   = store_data.iloc[mid_store:]
+        category_left = category_data.iloc[:mid_category]
+        category_right= category_data.iloc[mid_category:]
+        brand_left    = brand_data.iloc[:mid_brand]
+        brand_right   = brand_data.iloc[mid_brand:]
+        product_left  = product_data.iloc[:mid_product]
+        product_right = product_data.iloc[mid_product:]
+
+        # ── Build charts (CPU-bound, kept sequential — fast enough) ───────────
+        fig          = create_store_sales_chart(chart_data, top_n=30)
+        category_fig = create_category_sales_chart(category_data, top_n=15)
+        brand_fig    = create_brand_sales_bar_chart(brand_data, top_n=30)
+        product_fig  = create_product_sales_bar_chart(product_data, top_n=30)
+
+        # ── Header / summary displays ──────────────────────────────────────────
+        # get_last_date() reuses the already-fetched end_date instead of a 6th
+        # DB round-trip; the original called it separately after all fetches.
+        last_date      = end_date if hasattr(end_date, 'strftime') else pd.to_datetime(end_date)
+        formatted_date = last_date.strftime('%B %d, %Y')
+        date_display   = html.P([
+            "📅 This report compares the latest available sales data with the average sales from the previous 7 days, Update: ",
+            html.Span(formatted_date, style={'fontWeight': 'bold', 'fontSize': '18px', 'color': '#e74c3c'})
+        ], style={'fontSize': '16px', 'color': '#2c3e50'})
+
+        total_sales_display = f"📊 Total Sales: ₹{total_sales:,.2f}"
+
+        growth_color = "#006400" if weekly_growth > 0 else "#e74c3c"
+        weekly_growth_display = html.Span(
+            f"📈 Avg Weekly Growth: {weekly_growth:.2f}%",
+            style={'fontWeight': 'bold', 'color': growth_color, 'fontSize': '20px'}
+        )
+
+        return (
+            store_left.to_dict('records'),
+            store_right.to_dict('records'),
+            fig,
+            category_left.to_dict('records'),
+            category_right.to_dict('records'),
+            category_fig,
+            brand_left.to_dict('records'),
+            brand_right.to_dict('records'),
+            brand_fig,
+            product_left.to_dict('records'),
+            product_right.to_dict('records'),
+            product_fig,
+            date_display,
+            total_sales_display,
+            weekly_growth_display
+        )
+
+    except Exception as e:
+        print(f"Error: {e}")
+        import traceback
+        print(f"Full traceback: {traceback.format_exc()}")
+        return [], [], {}, [], [], {}, [], [], {}, [],[],{}, "Error fetching data", "N/A", "N/A"
+
+
+# =============================================================================
+# PDF GENERATION — replaces the hardcoded 20-second sleep with precise
+# element-level waits so the PDF is captured as soon as data is ready.
+# =============================================================================
+
 async def save_pdf():
-    REPORTS_DIR = "/base/dir/reports"
+    REPORTS_DIR = "/home/azureuser/azure_analysis_algorithm/reports"
     os.makedirs(REPORTS_DIR, exist_ok=True)
     yesterday = (datetime.now() - timedelta(days=1)).strftime("%Y-%m-%d")
     file_path = os.path.join(REPORTS_DIR, f"sales_report_{yesterday}.pdf")
@@ -626,8 +744,8 @@ async def save_pdf():
 
         print("Waiting for data to load...")
 
-        # Wait for the specific content that indicates data has loaded
-        # Wait for the total sales display to appear with actual data
+        # Wait for total sales display — confirms the callback has fired and
+        # data returned from the DB.
         try:
             await page.wait_for_function(
                 """() => {
@@ -653,16 +771,21 @@ async def save_pdf():
         except:
             print("Warning: Tables may not be fully loaded")
 
-        # Wait for charts to render (Plotly creates svg elements)
+        # Wait for ALL 4 Plotly charts to finish rendering.
+        # The original code waited for just one selector then slept 20 s as a
+        # blanket guard. Waiting for the exact count of SVG plot elements
+        # (store + category + brand + product = 4) is both faster and reliable.
         try:
-            await page.wait_for_selector('.js-plotly-plot .plotly', timeout=30000)
-            print("Charts loaded")
+            await page.wait_for_function(
+                """() => {
+                    const plots = document.querySelectorAll('.js-plotly-plot .plotly svg');
+                    return plots.length >= 4;
+                }""",
+                timeout=45000
+            )
+            print("All 4 charts rendered")
         except:
-            print("Warning: Charts may not be fully loaded")
-
-        # Additional wait to ensure everything is rendered
-        print("Waiting additional 20 seconds for complete rendering...")
-        await asyncio.sleep(20)
+            print("Warning: Not all charts may be fully rendered, continuing...")
 
         # Verify content before generating PDF
         content = await page.content()
@@ -681,6 +804,7 @@ async def save_pdf():
         await browser.close()
         print(f"PDF saved as {file_path}")
     return file_path, yesterday
+
 
 def send_email_with_attachment():
     """Send email with PDF attachment and tracking pixel/link"""
@@ -747,109 +871,6 @@ def send_email_with_attachment():
         print(f"Error sending email: {e}")
         return False
 
-async def generate_and_send_report():
-    await save_pdf()
-    send_email_with_attachment()
-
-
-
-
-@app.callback(
-    [Output('store-table-left', 'data'),
-     Output('store-table-right', 'data'),
-     Output('store-sales-chart', 'figure'),
-     Output('category-table-left', 'data'),
-     Output('category-table-right', 'data'),
-     Output('category-sales-chart', 'figure'),
-     Output('brand-table-left', 'data'),
-     Output('brand-table-right', 'data'),
-     Output('brand-sales-chart', 'figure'),
-     Output('product-table-left', 'data'),
-     Output('product-table-right', 'data'),
-     Output('product-sales-chart', 'figure'),
-     Output('last-date-display', 'children'),
-     Output('total-sales-display', 'children'),
-     Output("weekly-growth-display", "children")],
-
-    [Input('date-picker', 'start_date'),
-     Input('date-picker', 'end_date')]
-)
-def update_tables(start_date, end_date):
-    try:
-        # Convert string dates to datetime if necessary
-        if isinstance(start_date, str):
-            start_date = pd.to_datetime(start_date)
-        if isinstance(end_date, str):
-            end_date = pd.to_datetime(end_date)
-
-        # Fetch sales data
-        store_data, chart_data = fetch_sales_data(start_date, end_date)
-        mid_index_store = len(store_data) // 2
-        store_left = store_data.iloc[:mid_index_store]
-        store_right = store_data.iloc[mid_index_store:]
-
-        fig = create_store_sales_chart(chart_data, top_n=30)
-
-        category_data = fetch_subcategory_data(start_date, end_date)
-        mid_index_category = len(category_data) // 2
-        category_left = category_data.iloc[:mid_index_category]
-        category_right = category_data.iloc[mid_index_category:]
-        category_fig = create_category_sales_chart(category_data, top_n=15)
-
-        brand_data = fetch_brand_data(start_date, end_date)
-        mid_index_brand = len(brand_data) // 2
-        brand_left = brand_data.iloc[:mid_index_brand]
-        brand_right = brand_data.iloc[mid_index_brand:]
-        # Fixed: Pass brand_data to the chart function
-        brand_fig = create_brand_sales_bar_chart(brand_data, top_n=30)
-
-        product_data = fetch_product_data(start_date, end_date)
-        mid_index_product = len(product_data) // 2
-        product_left = product_data.iloc[:mid_index_product]
-        product_right = product_data.iloc[mid_index_product:]
-        product_fig = create_product_sales_bar_chart(product_data, top_n=30)
-
-        last_date = get_last_date()
-
-        formatted_date = last_date.strftime('%B %d, %Y')
-        date_display = html.P([
-            "📅 This report compares the latest available sales data with the average sales from the previous 7 days, Update: ",
-            html.Span(formatted_date, style={'fontWeight': 'bold', 'fontSize': '18px', 'color': '#e74c3c'})
-        ], style={'fontSize': '16px', 'color': '#2c3e50'})
-
-        total_sales, weekly_growth = fetch_total_sales()
-        total_sales_display = f"📊 Total Sales: ₹{total_sales:,.2f}"
-
-        growth_color = "#006400" if weekly_growth > 0 else "#e74c3c"
-        weekly_growth_display = html.Span(
-            f"📈 Avg Weekly Growth: {weekly_growth:.2f}%",
-            style={'fontWeight': 'bold', 'color': growth_color, 'fontSize': '20px'}
-        )
-
-        return (
-            store_left.to_dict('records'),
-            store_right.to_dict('records'),
-            fig,
-            category_left.to_dict('records'),
-            category_right.to_dict('records'),
-            category_fig,
-            brand_left.to_dict('records'),
-            brand_right.to_dict('records'),
-            brand_fig,
-            product_left.to_dict('records'),
-            product_right.to_dict('records'),
-            product_fig,
-            date_display,
-            total_sales_display,
-            weekly_growth_display
-        )
-
-    except Exception as e:
-        print(f"Error: {e}")
-        import traceback
-        print(f"Full traceback: {traceback.format_exc()}")
-        return [], [], {}, [], [], {}, [], [], {}, [],[],{}, "Error fetching data", "N/A", "N/A"
-
 
 def run_server():
     """Run the Dash server in a separate thread"""
@@ -881,9 +902,12 @@ async def generate_and_send_report():
         print("Server failed to start within timeout")
         return False
 
-    # Give server more time to fully initialize
+    # Give server a moment to stabilise before Playwright opens its page.
+    # 3 s is enough for Flask/Werkzeug to finish binding; the remaining wait
+    # is driven by Playwright's element-level conditions in save_pdf() so
+    # we don't burn any extra fixed time here.
     print("Waiting for server to fully initialize...")
-    time.sleep(10)
+    time.sleep(3)
 
     try:
         # Generate PDF

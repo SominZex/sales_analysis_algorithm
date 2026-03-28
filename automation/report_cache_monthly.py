@@ -1,37 +1,34 @@
 """
-report_cache.py
+report_cache_monthly.py
 ────────────────────────────────────────────────────────────────────────────────
-Precompute layer — runs once after the daily ETL, caches all report data
-to Azure Blob Storage as Parquet files.
+Precompute layer (MONTHLY) — runs once after the monthly ETL, caches monthly
+report data to Azure Blob Storage as Parquet files.
 
-Both azure_blob_report.py (weekly) and monthly_llm.py (monthly) load their
-data from these cache files instead of running heavy SQL queries at report time.
+monthly_llm.py loads its data from these cache files instead of running heavy
+SQL queries at report time.
 
 WHY THIS IS FASTER
 ──────────────────
 Current situation (without cache):
-  - Weekly report: 5 SQL queries × 140 stores = 700 sequential DB round-trips
+  - Monthly report: 5 SQL queries × 140 stores = 700 sequential DB round-trips
   - Each query scans billing_data (340k+ rows) with GROUP BY + window functions
   - Total DB time: ~15–25 minutes just in queries
 
-With this cache:
-  - This script runs ONE set of queries across ALL stores at once using
-    GROUP BY storeName — the DB scans the table once, not 140 times
-  - Results written to Parquet in blob storage (one file per report type)
+With this cache (DuckDB edition):
+  - DuckDB connects directly to Postgres via its postgres extension and pushes
+    all aggregation down — the DB sends only pre-grouped rows, not raw rows
+  - DuckDB runs the GROUP BY / CASE logic in its own columnar engine using
+    parallel threads — no Python/pandas overhead at all
+  - Results written to Parquet via DuckDB's native writer (columnar, streamed)
   - Report scripts read Parquet (~50ms per store) instead of hitting the DB
   - Total DB time for report generation: ~0 seconds
-  - Estimated speedup: 10–20x
+  - Handles billions of rows: DuckDB spills to disk automatically when memory
+    is insufficient, so it never OOMs regardless of dataset size
+  - Estimated speedup over pandas: 5–15x additional on top of the 10–20x
+    already gained by the single-pass cache strategy
 
 BLOB LAYOUT (container: report-cache)
 ──────────────────────────────────────
-  weekly/
-    week_start=2026-03-20/
-      brand_sales.parquet        ← all stores, all brands for this week
-      category_sales.parquet
-      product_sales.parquet
-      store_summary.parquet      ← total_sales, profit, margin per store
-      comparison.parquet         ← current vs prev 2 weeks per store
-
   monthly/
     month_start=2026-03-01/
       brand_sales.parquet
@@ -42,10 +39,8 @@ BLOB LAYOUT (container: report-cache)
 
 USAGE
 ─────
-# Run after ETL completes (add to cron after core_pipeline.py):
-  python report_cache.py --mode weekly
-  python report_cache.py --mode monthly
-  python report_cache.py --mode both      ← default
+# Run after monthly ETL completes (add to cron after core_pipeline.py):
+  python report_cache_monthly.py
 
 # Report scripts load cache automatically — no changes needed to call sites.
 ────────────────────────────────────────────────────────────────────────────────
@@ -53,16 +48,14 @@ USAGE
 
 import io
 import os
-import argparse
 import time
-from datetime import datetime, timezone, timedelta
+import tempfile
+from datetime import datetime, timedelta
+import psutil
 
-import pandas as pd
+import duckdb
 import pyarrow as pa
 import pyarrow.parquet as pq
-from sqlalchemy import create_engine, text
-from sqlalchemy.pool import NullPool
-from sqlalchemy.exc import OperationalError
 from azure.storage.blob import BlobServiceClient, ContentSettings
 from azure.core.exceptions import ResourceExistsError
 from dotenv import load_dotenv
@@ -82,34 +75,51 @@ CACHE_CONTAINER         = os.getenv("AZURE_CACHE_CONTAINER", "report-cache")
 
 EXCLUDED_STORES = ["Ho Marlboro", "Dummy Store --- For Testing Only"]
 
-DB_URI = (
-    f"postgresql+psycopg2://"
-    f"{require_env('DB_USER')}:{require_env('DB_PASSWORD')}"
-    f"@{require_env('DB_HOST')}:{os.getenv('DB_PORT', '5432')}"
-    f"/{require_env('DB_NAME')}"
+DB_HOST     = require_env("DB_HOST")
+DB_PORT     = os.getenv("DB_PORT", "5432")
+DB_NAME     = require_env("DB_NAME")
+DB_USER     = require_env("DB_USER")
+DB_PASSWORD = require_env("DB_PASSWORD")
+
+_PG_CONN_STR = (
+    f"host={DB_HOST} port={DB_PORT} dbname={DB_NAME} "
+    f"user={DB_USER} password={DB_PASSWORD}"
 )
 
-engine = create_engine(
-    DB_URI,
-    poolclass=NullPool,
-    connect_args={
-        "connect_timeout": 10,
-        "keepalives": 1,
-        "keepalives_idle": 30,
-        "keepalives_interval": 10,
-        "keepalives_count": 5,
-    },
-)
+# Set to 0 to let DuckDB auto-detect (uses all logical CPUs)
+DUCKDB_THREADS = int(os.getenv("DUCKDB_THREADS", "0"))
+
+
+# ── DuckDB connection factory ─────────────────────────────────────────────────
+
+def _new_duck() -> duckdb.DuckDBPyConnection:
+    con = duckdb.connect()
+
+    if DUCKDB_THREADS > 0:
+        con.execute(f"SET threads TO {DUCKDB_THREADS}")
+
+    # Compute 80% of system RAM and express it as an explicit GiB value
+    total_ram_gb = psutil.virtual_memory().total / (1024 ** 3)
+    memory_limit_gb = max(1, int(total_ram_gb * 0.8))
+    con.execute(f"SET memory_limit = '{memory_limit_gb}GiB'")
+    con.execute("SET temp_directory = '/tmp/duckdb_spill'")
+
+    con.execute("INSTALL postgres; LOAD postgres;")
+    con.execute(
+        f"ATTACH '{_PG_CONN_STR}' AS pg (TYPE POSTGRES, READ_ONLY)"
+    )
+    return con
+
 
 # ── Blob helpers ──────────────────────────────────────────────────────────────
 
-def _get_blob_client():
+def _get_blob_client() -> BlobServiceClient:
     if not AZURE_CONNECTION_STRING:
         raise RuntimeError("AZURE_CONNECTION_STRING not set in .env")
     return BlobServiceClient.from_connection_string(AZURE_CONNECTION_STRING)
 
 
-def _ensure_container(sc, name: str):
+def _ensure_container(sc: BlobServiceClient, name: str):
     try:
         sc.create_container(name)
         print(f"  Created container: {name}")
@@ -117,257 +127,86 @@ def _ensure_container(sc, name: str):
         pass
 
 
-def _df_to_parquet_bytes(df: pd.DataFrame) -> bytes:
-    buf   = io.BytesIO()
-    table = pa.Table.from_pandas(df, preserve_index=False)
-    pq.write_table(table, buf, compression="snappy")
-    buf.seek(0)
-    return buf.read()
+def _upload_parquet(sc: BlobServiceClient, blob_name: str, parquet_path: str):
+    size = os.path.getsize(parquet_path)
+    with open(parquet_path, "rb") as f:
+        sc.get_blob_client(container=CACHE_CONTAINER, blob=blob_name).upload_blob(
+            f,
+            overwrite=True,
+            content_settings=ContentSettings(content_type="application/octet-stream"),
+        )
+    meta = pq.read_metadata(parquet_path)
+    rows = meta.num_rows
+    print(f"  ✓ {blob_name}  ({rows:,} rows, {size / 1024:.0f} KB)")
 
 
-def _upload(sc, blob_name: str, df: pd.DataFrame):
-    data = _df_to_parquet_bytes(df)
-    sc.get_blob_client(container=CACHE_CONTAINER, blob=blob_name).upload_blob(
-        data,
-        overwrite=True,
-        content_settings=ContentSettings(content_type="application/octet-stream"),
-    )
-    print(f"  ✓ {blob_name}  ({len(df):,} rows, {len(data)/1024:.0f} KB)")
+def _duck_to_blob(
+    con: duckdb.DuckDBPyConnection,
+    query: str,
+    sc: BlobServiceClient,
+    blob_name: str,
+):
+    """
+    Execute *query* in DuckDB, write result to a temp Parquet file using
+    DuckDB's native columnar writer, upload to blob, then delete the temp file.
+    Never materialises the full result in Python — safe for billions of rows.
+    """
+    with tempfile.NamedTemporaryFile(suffix=".parquet", delete=False) as tf:
+        tmp_path = tf.name
+    try:
+        con.execute(f"""
+            COPY ({query})
+            TO '{tmp_path}'
+            (FORMAT PARQUET, COMPRESSION SNAPPY)
+        """)
+        _upload_parquet(sc, blob_name, tmp_path)
+    finally:
+        try:
+            os.unlink(tmp_path)
+        except OSError:
+            pass
 
 
-def _download(blob_name: str) -> pd.DataFrame:
-    """Public helper — called by report scripts to load cached data."""
+def _download(blob_name: str) -> pa.Table:
+    """
+    Download a Parquet blob and return a PyArrow Table.
+    monthly_azure_llm.py registers this into DuckDB and queries it directly —
+    no pandas materialisation needed.
+    """
     sc   = _get_blob_client()
     data = sc.get_blob_client(
         container=CACHE_CONTAINER, blob=blob_name
     ).download_blob().readall()
-    return pq.read_table(io.BytesIO(data)).to_pandas()
+    return pq.read_table(io.BytesIO(data))
 
 
-# ── SQL helpers ───────────────────────────────────────────────────────────────
-
-def safe_read_sql(query: str, params=None, retries: int = 3, delay: int = 3) -> pd.DataFrame:
-    for attempt in range(retries):
-        try:
-            with engine.connect() as conn:
-                return pd.read_sql(query, conn, params=params)
-        except OperationalError as e:
-            print(f"  DB error (attempt {attempt+1}/{retries}): {str(e)[:80]}")
-            if attempt == retries - 1:
-                raise
-            time.sleep(delay * (2 ** attempt))
-            engine.dispose()
-        except Exception as e:
-            print(f"  Unexpected DB error (attempt {attempt+1}/{retries}): {e}")
-            if attempt == retries - 1:
-                raise
-            time.sleep(delay)
-    raise RuntimeError("Query failed after retries")
-
-
-# =============================================================================
-# WEEKLY CACHE
-# Runs ONE query per table across ALL stores — DB scans billing_data once.
-# =============================================================================
-
-def build_weekly_cache(week_start: datetime.date, week_end: datetime.date) -> str:
-    """
-    Compute all weekly report data for all stores in a single pass per table.
-    Writes Parquet files to blob. Returns the cache prefix string.
-    """
-    prefix = f"weekly/week_start={week_start.isoformat()}"
-    ws_str = week_start.isoformat()
-    we_str = week_end.isoformat()
-
-    print(f"\n{'='*60}")
-    print(f"WEEKLY CACHE BUILD  —  {ws_str} to {we_str}")
-    print(f"{'='*60}")
-
-    sc = _get_blob_client()
-    _ensure_container(sc, CACHE_CONTAINER)
-
-    excl = tuple(EXCLUDED_STORES)
-
-    # ── store_summary: total sales, profit, margin per store ─────────────────
-    print("\n[1/5] Computing store_summary...")
-    q = f"""
-        SELECT
-            "storeName",
-            ROUND(SUM("totalProductPrice")::numeric, 2)                         AS total_weekly_sales,
-            ROUND(SUM(COALESCE("costPrice",0) * "quantity")::numeric, 2)        AS total_weekly_cost,
-            ROUND((SUM("totalProductPrice")
-                   - SUM(COALESCE("costPrice",0) * "quantity"))::numeric, 2)    AS total_weekly_profit,
-            ROUND(AVG(
-                CASE WHEN "totalProductPrice" > 0
-                     THEN ("totalProductPrice"
-                           - COALESCE("costPrice",0) * "quantity")
-                          / "totalProductPrice" * 100
-                     ELSE 0 END
-            )::numeric, 2)                                                       AS avg_profit_margin_percent
-        FROM "billing_data"
-        WHERE "orderDate" BETWEEN %(ws)s AND %(we)s
-          AND "storeName" NOT IN %(excl)s
-        GROUP BY "storeName"
-    """
-    store_summary = safe_read_sql(q, params={"ws": ws_str, "we": we_str, "excl": excl})
-    _upload(sc, f"{prefix}/store_summary.parquet", store_summary)
-
-    # ── comparison: current week vs prev 2 weeks avg per store ───────────────
-    print("\n[2/5] Computing comparison...")
-    q = f"""
-        WITH periods AS (
-            SELECT
-                "storeName",
-                SUM(CASE WHEN "orderDate" BETWEEN %(ws)s AND %(we)s
-                         THEN "totalProductPrice" ELSE 0 END) AS current_week_sales,
-                SUM(CASE WHEN "orderDate" BETWEEN %(w2s)s AND %(w2e)s
-                         THEN "totalProductPrice" ELSE 0 END) AS week_2_sales,
-                SUM(CASE WHEN "orderDate" BETWEEN %(w3s)s AND %(w3e)s
-                         THEN "totalProductPrice" ELSE 0 END) AS week_3_sales
-            FROM "billing_data"
-            WHERE "orderDate" BETWEEN %(w3s)s AND %(we)s
-              AND "storeName" NOT IN %(excl)s
-            GROUP BY "storeName"
-        )
-        SELECT
-            "storeName",
-            current_week_sales,
-            ROUND(((week_2_sales + week_3_sales) / 2.0)::numeric, 2) AS prev_2_weeks_avg
-        FROM periods
-    """
-    w2_start = (week_start - timedelta(days=7)).isoformat()
-    w2_end   = (week_start - timedelta(days=1)).isoformat()
-    w3_start = (week_start - timedelta(days=14)).isoformat()
-    w3_end   = (week_start - timedelta(days=8)).isoformat()
-    comparison = safe_read_sql(q, params={
-        "ws": ws_str, "we": we_str,
-        "w2s": w2_start, "w2e": w2_end,
-        "w3s": w3_start, "w3e": w3_end,
-        "excl": excl,
-    })
-    _upload(sc, f"{prefix}/comparison.parquet", comparison)
-
-    # ── brand_sales ───────────────────────────────────────────────────────────
-    print("\n[3/5] Computing brand_sales...")
-    q = f"""
-        WITH totals AS (
-            SELECT "storeName", SUM("totalProductPrice") AS store_total
-            FROM "billing_data"
-            WHERE "orderDate" BETWEEN %(ws)s AND %(we)s
-              AND "storeName" NOT IN %(excl)s
-            GROUP BY "storeName"
-        )
-        SELECT
-            b."storeName",
-            b."brandName",
-            ROUND(SUM(b."totalProductPrice")::numeric, 2)                        AS total_sales,
-            SUM(b."quantity")                                                     AS quantity_sold,
-            ROUND((SUM(b."totalProductPrice")
-                   / NULLIF(t.store_total,0) * 100)::numeric, 2)                AS contrib_percent,
-            ROUND(CASE WHEN SUM(b."totalProductPrice") > 0
-                       THEN ((SUM(b."totalProductPrice")
-                             - SUM(COALESCE(b."costPrice",0)*b."quantity"))
-                            / SUM(b."totalProductPrice") * 100)::numeric
-                       ELSE 0 END, 2)                                            AS profit_margin
-        FROM "billing_data" b
-        JOIN totals t ON t."storeName" = b."storeName"
-        WHERE b."orderDate" BETWEEN %(ws)s AND %(we)s
-          AND b."storeName" NOT IN %(excl)s
-        GROUP BY b."storeName", b."brandName", t.store_total
-        ORDER BY b."storeName", total_sales DESC
-    """
-    brand_sales = safe_read_sql(q, params={"ws": ws_str, "we": we_str, "excl": excl})
-    _upload(sc, f"{prefix}/brand_sales.parquet", brand_sales)
-
-    # ── category_sales ────────────────────────────────────────────────────────
-    print("\n[4/5] Computing category_sales...")
-    q = f"""
-        WITH totals AS (
-            SELECT "storeName", SUM("totalProductPrice") AS store_total
-            FROM "billing_data"
-            WHERE "orderDate" BETWEEN %(ws)s AND %(we)s
-              AND "storeName" NOT IN %(excl)s
-            GROUP BY "storeName"
-        )
-        SELECT
-            b."storeName",
-            b."categoryName",
-            ROUND(SUM(b."totalProductPrice")::numeric, 2)                        AS total_sales,
-            SUM(b."quantity")                                                     AS quantity_sold,
-            ROUND((SUM(b."totalProductPrice")
-                   / NULLIF(t.store_total,0) * 100)::numeric, 2)                AS contrib_percent,
-            ROUND(CASE WHEN SUM(b."totalProductPrice") > 0
-                       THEN ((SUM(b."totalProductPrice")
-                             - SUM(COALESCE(b."costPrice",0)*b."quantity"))
-                            / SUM(b."totalProductPrice") * 100)::numeric
-                       ELSE 0 END, 2)                                            AS profit_margin
-        FROM "billing_data" b
-        JOIN totals t ON t."storeName" = b."storeName"
-        WHERE b."orderDate" BETWEEN %(ws)s AND %(we)s
-          AND b."storeName" NOT IN %(excl)s
-        GROUP BY b."storeName", b."categoryName", t.store_total
-        ORDER BY b."storeName", total_sales DESC
-    """
-    category_sales = safe_read_sql(q, params={"ws": ws_str, "we": we_str, "excl": excl})
-    _upload(sc, f"{prefix}/category_sales.parquet", category_sales)
-
-    # ── product_sales ─────────────────────────────────────────────────────────
-    print("\n[5/5] Computing product_sales...")
-    q = f"""
-        WITH totals AS (
-            SELECT "storeName", SUM("totalProductPrice") AS store_total
-            FROM "billing_data"
-            WHERE "orderDate" BETWEEN %(ws)s AND %(we)s
-              AND "storeName" NOT IN %(excl)s
-            GROUP BY "storeName"
-        )
-        SELECT
-            b."storeName",
-            b."productName",
-            ROUND(SUM(b."totalProductPrice")::numeric, 2)                        AS total_sales,
-            SUM(b."quantity")                                                     AS quantity_sold,
-            ROUND((SUM(b."totalProductPrice")
-                   / NULLIF(t.store_total,0) * 100)::numeric, 2)                AS contrib_percent,
-            ROUND(CASE WHEN SUM(b."totalProductPrice") > 0
-                       THEN ((SUM(b."totalProductPrice")
-                             - SUM(COALESCE(b."costPrice",0)*b."quantity"))
-                            / SUM(b."totalProductPrice") * 100)::numeric
-                       ELSE 0 END, 2)                                            AS profit_margin
-        FROM "billing_data" b
-        JOIN totals t ON t."storeName" = b."storeName"
-        WHERE b."orderDate" BETWEEN %(ws)s AND %(we)s
-          AND b."storeName" NOT IN %(excl)s
-        GROUP BY b."storeName", b."productName", t.store_total
-        ORDER BY b."storeName", total_sales DESC
-    """
-    product_sales = safe_read_sql(q, params={"ws": ws_str, "we": we_str, "excl": excl})
-    _upload(sc, f"{prefix}/product_sales.parquet", product_sales)
-
-    print(f"\n  ✓ Weekly cache complete → {prefix}")
-    return prefix
+def _excl_clause() -> str:
+    quoted = ", ".join(f"'{s}'" for s in EXCLUDED_STORES)
+    return f'"storeName" NOT IN ({quoted})'
 
 
 # =============================================================================
 # MONTHLY CACHE
-# Same single-pass approach for monthly data.
 # =============================================================================
 
-def build_monthly_cache(month_start: datetime.date, month_end: datetime.date) -> str:
+def build_monthly_cache(month_start, month_end) -> str:
     """
     Compute all monthly report data for all stores in a single pass per table.
+    Writes Parquet files to blob via DuckDB's native writer.
+    Returns the cache prefix string.
     """
-    prefix  = f"monthly/month_start={month_start.isoformat()}"
-    ms_str  = month_start.isoformat()
-    me_str  = month_end.isoformat()
+    ms_str = month_start.isoformat()
+    me_str = month_end.isoformat()
+    prefix = f"monthly/month_start={ms_str}"
 
     print(f"\n{'='*60}")
     print(f"MONTHLY CACHE BUILD  —  {ms_str} to {me_str}")
     print(f"{'='*60}")
 
-    sc = _get_blob_client()
+    sc   = _get_blob_client()
     _ensure_container(sc, CACHE_CONTAINER)
-
-    excl = tuple(EXCLUDED_STORES)
+    excl = _excl_clause()
+    con  = _new_duck()
 
     # Prev 3 month boundaries
     from dateutil.relativedelta import relativedelta
@@ -378,217 +217,178 @@ def build_monthly_cache(month_start: datetime.date, month_end: datetime.date) ->
     m3s = (month_start - relativedelta(months=3)).isoformat()
     m3e = (month_start - relativedelta(months=2) - timedelta(days=1)).isoformat()
 
-    # ── store_summary ─────────────────────────────────────────────────────────
-    print("\n[1/5] Computing store_summary...")
-    q = f"""
-        SELECT
-            "storeName",
-            ROUND(SUM("totalProductPrice")::numeric, 2)                         AS total_monthly_sales,
-            ROUND(SUM(COALESCE("costPrice",0) * "quantity")::numeric, 2)        AS total_monthly_cost,
-            ROUND((SUM("totalProductPrice")
-                   - SUM(COALESCE("costPrice",0) * "quantity"))::numeric, 2)    AS total_monthly_profit,
-            ROUND(AVG(
-                CASE WHEN "totalProductPrice" > 0
-                     THEN ("totalProductPrice"
-                           - COALESCE("costPrice",0) * "quantity")
-                          / "totalProductPrice" * 100
-                     ELSE 0 END
-            )::numeric, 2)                                                       AS avg_profit_margin_percent
-        FROM "billing_data"
-        WHERE "orderDate" BETWEEN %(ms)s AND %(me)s
-          AND "storeName" NOT IN %(excl)s
-        GROUP BY "storeName"
-    """
-    store_summary = safe_read_sql(q, params={"ms": ms_str, "me": me_str, "excl": excl})
-    _upload(sc, f"{prefix}/store_summary.parquet", store_summary)
-
-    # ── comparison: current month vs prev 3 months avg ────────────────────────
-    print("\n[2/5] Computing comparison...")
-    q = f"""
-        WITH periods AS (
+    try:
+        # ── store_summary ─────────────────────────────────────────────────────
+        print("\n[1/5] Computing store_summary...")
+        _duck_to_blob(con, f"""
             SELECT
                 "storeName",
-                SUM(CASE WHEN "orderDate" BETWEEN %(ms)s  AND %(me)s  THEN "totalProductPrice" ELSE 0 END) AS current_month_sales,
-                SUM(CASE WHEN "orderDate" BETWEEN %(m1s)s AND %(m1e)s THEN "totalProductPrice" ELSE 0 END) AS month_1_sales,
-                SUM(CASE WHEN "orderDate" BETWEEN %(m2s)s AND %(m2e)s THEN "totalProductPrice" ELSE 0 END) AS month_2_sales,
-                SUM(CASE WHEN "orderDate" BETWEEN %(m3s)s AND %(m3e)s THEN "totalProductPrice" ELSE 0 END) AS month_3_sales
-            FROM "billing_data"
-            WHERE "orderDate" BETWEEN %(m3s)s AND %(me)s
-              AND "storeName" NOT IN %(excl)s
+                ROUND(SUM("totalProductPrice")::DECIMAL(18,2), 2)                  AS total_monthly_sales,
+                ROUND(SUM(COALESCE("costPrice",0) * "quantity")::DECIMAL(18,2), 2) AS total_monthly_cost,
+                ROUND((SUM("totalProductPrice")
+                       - SUM(COALESCE("costPrice",0) * "quantity"))::DECIMAL(18,2), 2) AS total_monthly_profit,
+                ROUND(AVG(
+                    CASE WHEN "totalProductPrice" > 0
+                         THEN ("totalProductPrice"
+                               - COALESCE("costPrice",0) * "quantity")
+                              / "totalProductPrice" * 100
+                         ELSE 0 END
+                )::DECIMAL(18,2), 2)                                               AS avg_profit_margin_percent
+            FROM pg.billing_data
+            WHERE "orderDate" BETWEEN '{ms_str}' AND '{me_str}'
+              AND {excl}
             GROUP BY "storeName"
-        )
-        SELECT
-            "storeName",
-            current_month_sales,
-            ROUND(((month_1_sales + month_2_sales + month_3_sales) / 3.0)::numeric, 2) AS prev_3_months_avg
-        FROM periods
-    """
-    comparison = safe_read_sql(q, params={
-        "ms": ms_str, "me": me_str,
-        "m1s": m1s, "m1e": m1e,
-        "m2s": m2s, "m2e": m2e,
-        "m3s": m3s, "m3e": m3e,
-        "excl": excl,
-    })
-    _upload(sc, f"{prefix}/comparison.parquet", comparison)
+        """, sc, f"{prefix}/store_summary.parquet")
 
-    # ── brand_sales ───────────────────────────────────────────────────────────
-    print("\n[3/5] Computing brand_sales...")
-    q = f"""
-        WITH totals AS (
-            SELECT "storeName", SUM("totalProductPrice") AS store_total
-            FROM "billing_data"
-            WHERE "orderDate" BETWEEN %(ms)s AND %(me)s
-              AND "storeName" NOT IN %(excl)s
-            GROUP BY "storeName"
-        )
-        SELECT
-            b."storeName",
-            b."brandName",
-            ROUND(SUM(b."totalProductPrice")::numeric, 2)                        AS total_sales,
-            SUM(b."quantity")                                                     AS quantity_sold,
-            ROUND((SUM(b."totalProductPrice")
-                   / NULLIF(t.store_total,0) * 100)::numeric, 2)                AS contrib_percent,
-            ROUND(CASE WHEN SUM(b."totalProductPrice") > 0
-                       THEN ((SUM(b."totalProductPrice")
-                             - SUM(COALESCE(b."costPrice",0)*b."quantity"))
-                            / SUM(b."totalProductPrice") * 100)::numeric
-                       ELSE 0 END, 2)                                            AS profit_margin
-        FROM "billing_data" b
-        JOIN totals t ON t."storeName" = b."storeName"
-        WHERE b."orderDate" BETWEEN %(ms)s AND %(me)s
-          AND b."storeName" NOT IN %(excl)s
-        GROUP BY b."storeName", b."brandName", t.store_total
-        ORDER BY b."storeName", total_sales DESC
-    """
-    brand_sales = safe_read_sql(q, params={"ms": ms_str, "me": me_str, "excl": excl})
-    _upload(sc, f"{prefix}/brand_sales.parquet", brand_sales)
+        # ── comparison ────────────────────────────────────────────────────────
+        print("\n[2/5] Computing comparison...")
+        _duck_to_blob(con, f"""
+            WITH periods AS (
+                SELECT
+                    "storeName",
+                    SUM(CASE WHEN "orderDate" BETWEEN '{ms_str}' AND '{me_str}'
+                             THEN "totalProductPrice" ELSE 0 END) AS current_month_sales,
+                    SUM(CASE WHEN "orderDate" BETWEEN '{m1s}' AND '{m1e}'
+                             THEN "totalProductPrice" ELSE 0 END) AS month_1_sales,
+                    SUM(CASE WHEN "orderDate" BETWEEN '{m2s}' AND '{m2e}'
+                             THEN "totalProductPrice" ELSE 0 END) AS month_2_sales,
+                    SUM(CASE WHEN "orderDate" BETWEEN '{m3s}' AND '{m3e}'
+                             THEN "totalProductPrice" ELSE 0 END) AS month_3_sales
+                FROM pg.billing_data
+                WHERE "orderDate" BETWEEN '{m3s}' AND '{me_str}'
+                  AND {excl}
+                GROUP BY "storeName"
+            )
+            SELECT
+                "storeName",
+                current_month_sales,
+                ROUND(((month_1_sales + month_2_sales + month_3_sales) / 3.0)::DECIMAL(18,2), 2) AS prev_3_months_avg
+            FROM periods
+        """, sc, f"{prefix}/comparison.parquet")
 
-    # ── category_sales ────────────────────────────────────────────────────────
-    print("\n[4/5] Computing category_sales...")
-    q = f"""
-        WITH totals AS (
-            SELECT "storeName", SUM("totalProductPrice") AS store_total
-            FROM "billing_data"
-            WHERE "orderDate" BETWEEN %(ms)s AND %(me)s
-              AND "storeName" NOT IN %(excl)s
-            GROUP BY "storeName"
-        )
-        SELECT
-            b."storeName",
-            b."categoryName",
-            ROUND(SUM(b."totalProductPrice")::numeric, 2)                        AS total_sales,
-            SUM(b."quantity")                                                     AS quantity_sold,
-            ROUND((SUM(b."totalProductPrice")
-                   / NULLIF(t.store_total,0) * 100)::numeric, 2)                AS contrib_percent,
-            ROUND(CASE WHEN SUM(b."totalProductPrice") > 0
-                       THEN ((SUM(b."totalProductPrice")
-                             - SUM(COALESCE(b."costPrice",0)*b."quantity"))
-                            / SUM(b."totalProductPrice") * 100)::numeric
-                       ELSE 0 END, 2)                                            AS profit_margin
-        FROM "billing_data" b
-        JOIN totals t ON t."storeName" = b."storeName"
-        WHERE b."orderDate" BETWEEN %(ms)s AND %(me)s
-          AND b."storeName" NOT IN %(excl)s
-        GROUP BY b."storeName", b."categoryName", t.store_total
-        ORDER BY b."storeName", total_sales DESC
-    """
-    category_sales = safe_read_sql(q, params={"ms": ms_str, "me": me_str, "excl": excl})
-    _upload(sc, f"{prefix}/category_sales.parquet", category_sales)
+        # ── brand_sales ───────────────────────────────────────────────────────
+        print("\n[3/5] Computing brand_sales...")
+        _duck_to_blob(con, f"""
+            WITH totals AS (
+                SELECT "storeName", SUM("totalProductPrice") AS store_total
+                FROM pg.billing_data
+                WHERE "orderDate" BETWEEN '{ms_str}' AND '{me_str}'
+                  AND {excl}
+                GROUP BY "storeName"
+            )
+            SELECT
+                b."storeName",
+                b."brandName",
+                ROUND(SUM(b."totalProductPrice")::DECIMAL(18,2), 2)               AS total_sales,
+                SUM(b."quantity")                                                   AS quantity_sold,
+                ROUND((SUM(b."totalProductPrice")
+                       / NULLIF(t.store_total, 0) * 100)::DECIMAL(18,2), 2)       AS contrib_percent,
+                ROUND(CASE WHEN SUM(b."totalProductPrice") > 0
+                           THEN ((SUM(b."totalProductPrice")
+                                 - SUM(COALESCE(b."costPrice",0)*b."quantity"))
+                                / SUM(b."totalProductPrice") * 100)::DECIMAL(18,2)
+                           ELSE 0 END, 2)                                          AS profit_margin
+            FROM pg.billing_data b
+            JOIN totals t USING ("storeName")
+            WHERE b."orderDate" BETWEEN '{ms_str}' AND '{me_str}'
+              AND {excl}
+            GROUP BY b."storeName", b."brandName", t.store_total
+            ORDER BY b."storeName", total_sales DESC
+        """, sc, f"{prefix}/brand_sales.parquet")
 
-    # ── product_sales ─────────────────────────────────────────────────────────
-    print("\n[5/5] Computing product_sales...")
-    q = f"""
-        WITH totals AS (
-            SELECT "storeName", SUM("totalProductPrice") AS store_total
-            FROM "billing_data"
-            WHERE "orderDate" BETWEEN %(ms)s AND %(me)s
-              AND "storeName" NOT IN %(excl)s
-            GROUP BY "storeName"
-        )
-        SELECT
-            b."storeName",
-            b."productName",
-            ROUND(SUM(b."totalProductPrice")::numeric, 2)                        AS total_sales,
-            SUM(b."quantity")                                                     AS quantity_sold,
-            ROUND((SUM(b."totalProductPrice")
-                   / NULLIF(t.store_total,0) * 100)::numeric, 2)                AS contrib_percent,
-            ROUND(CASE WHEN SUM(b."totalProductPrice") > 0
-                       THEN ((SUM(b."totalProductPrice")
-                             - SUM(COALESCE(b."costPrice",0)*b."quantity"))
-                            / SUM(b."totalProductPrice") * 100)::numeric
-                       ELSE 0 END, 2)                                            AS profit_margin
-        FROM "billing_data" b
-        JOIN totals t ON t."storeName" = b."storeName"
-        WHERE b."orderDate" BETWEEN %(ms)s AND %(me)s
-          AND b."storeName" NOT IN %(excl)s
-        GROUP BY b."storeName", b."productName", t.store_total
-        ORDER BY b."storeName", total_sales DESC
-    """
-    product_sales = safe_read_sql(q, params={"ms": ms_str, "me": me_str, "excl": excl})
-    _upload(sc, f"{prefix}/product_sales.parquet", product_sales)
+        # ── category_sales ────────────────────────────────────────────────────
+        print("\n[4/5] Computing category_sales...")
+        _duck_to_blob(con, f"""
+            WITH totals AS (
+                SELECT "storeName", SUM("totalProductPrice") AS store_total
+                FROM pg.billing_data
+                WHERE "orderDate" BETWEEN '{ms_str}' AND '{me_str}'
+                  AND {excl}
+                GROUP BY "storeName"
+            )
+            SELECT
+                b."storeName",
+                b."categoryName",
+                ROUND(SUM(b."totalProductPrice")::DECIMAL(18,2), 2)               AS total_sales,
+                SUM(b."quantity")                                                   AS quantity_sold,
+                ROUND((SUM(b."totalProductPrice")
+                       / NULLIF(t.store_total, 0) * 100)::DECIMAL(18,2), 2)       AS contrib_percent,
+                ROUND(CASE WHEN SUM(b."totalProductPrice") > 0
+                           THEN ((SUM(b."totalProductPrice")
+                                 - SUM(COALESCE(b."costPrice",0)*b."quantity"))
+                                / SUM(b."totalProductPrice") * 100)::DECIMAL(18,2)
+                           ELSE 0 END, 2)                                          AS profit_margin
+            FROM pg.billing_data b
+            JOIN totals t USING ("storeName")
+            WHERE b."orderDate" BETWEEN '{ms_str}' AND '{me_str}'
+              AND {excl}
+            GROUP BY b."storeName", b."categoryName", t.store_total
+            ORDER BY b."storeName", total_sales DESC
+        """, sc, f"{prefix}/category_sales.parquet")
+
+        # ── product_sales ─────────────────────────────────────────────────────
+        print("\n[5/5] Computing product_sales...")
+        _duck_to_blob(con, f"""
+            WITH totals AS (
+                SELECT "storeName", SUM("totalProductPrice") AS store_total
+                FROM pg.billing_data
+                WHERE "orderDate" BETWEEN '{ms_str}' AND '{me_str}'
+                  AND {excl}
+                GROUP BY "storeName"
+            )
+            SELECT
+                b."storeName",
+                b."productName",
+                ROUND(SUM(b."totalProductPrice")::DECIMAL(18,2), 2)               AS total_sales,
+                SUM(b."quantity")                                                   AS quantity_sold,
+                ROUND((SUM(b."totalProductPrice")
+                       / NULLIF(t.store_total, 0) * 100)::DECIMAL(18,2), 2)       AS contrib_percent,
+                ROUND(CASE WHEN SUM(b."totalProductPrice") > 0
+                           THEN ((SUM(b."totalProductPrice")
+                                 - SUM(COALESCE(b."costPrice",0)*b."quantity"))
+                                / SUM(b."totalProductPrice") * 100)::DECIMAL(18,2)
+                           ELSE 0 END, 2)                                          AS profit_margin
+            FROM pg.billing_data b
+            JOIN totals t USING ("storeName")
+            WHERE b."orderDate" BETWEEN '{ms_str}' AND '{me_str}'
+              AND {excl}
+            GROUP BY b."storeName", b."productName", t.store_total
+            ORDER BY b."storeName", total_sales DESC
+        """, sc, f"{prefix}/product_sales.parquet")
+
+    finally:
+        con.close()
 
     print(f"\n  ✓ Monthly cache complete → {prefix}")
     return prefix
 
 
 # =============================================================================
-# PUBLIC READ API — called by report scripts
+# PUBLIC READ API — called by monthly_llm.py
 # =============================================================================
-
-def load_weekly_cache(week_start_str: str) -> dict:
-    """
-    Load all weekly cache tables for a given week_start (ISO string).
-    Returns a dict of DataFrames keyed by table name.
-
-    Usage in azure_blob_report.py:
-        cache = report_cache.load_weekly_cache("2026-03-20")
-        brand_df = cache["brand_sales"][cache["brand_sales"]["storeName"] == store_name]
-    """
-    prefix = f"weekly/week_start={week_start_str}"
-    tables = ["store_summary", "comparison", "brand_sales", "category_sales", "product_sales"]
-    result = {}
-    for t in tables:
-        result[t] = _download(f"{prefix}/{t}.parquet")
-    return result
-
 
 def load_monthly_cache(month_start_str: str) -> dict:
     """
     Load all monthly cache tables for a given month_start (ISO string).
-    Returns a dict of DataFrames keyed by table name.
+    Returns a dict of PyArrow Tables keyed by table name.
 
-    Usage in monthly_llm.py:
-        cache = report_cache.load_monthly_cache("2026-03-01")
-        brand_df = cache["brand_sales"][cache["brand_sales"]["storeName"] == store_name]
+    monthly_azure_llm.py registers these into a DuckDB connection and queries
+    them with SQL — no pandas materialisation in the hot path.
     """
     prefix = f"monthly/month_start={month_start_str}"
     tables = ["store_summary", "comparison", "brand_sales", "category_sales", "product_sales"]
-    result = {}
-    for t in tables:
-        result[t] = _download(f"{prefix}/{t}.parquet")
-    return result
+    return {t: _download(f"{prefix}/{t}.parquet") for t in tables}
 
 
 # =============================================================================
-# DATE RESOLUTION — figure out the right week/month from DB
+# DATE RESOLUTION
 # =============================================================================
-
-def resolve_weekly_dates() -> tuple:
-    """Return (week_start, week_end) as date objects based on MAX(orderDate)."""
-    q = 'SELECT MAX("orderDate")::date AS max_date FROM "billing_data"'
-    df = safe_read_sql(q)
-    max_date   = df["max_date"].iloc[0]
-    week_end   = max_date
-    week_start = max_date - timedelta(days=6)
-    return week_start, week_end
-
 
 def resolve_monthly_dates() -> tuple:
     """Return (month_start, month_end) for the previous complete calendar month."""
     from dateutil.relativedelta import relativedelta
     today       = datetime.now().date()
-    month_start = (today.replace(day=1) - relativedelta(months=1))
+    month_start = today.replace(day=1) - relativedelta(months=1)
     month_end   = today.replace(day=1) - timedelta(days=1)
     return month_start, month_end
 
@@ -598,18 +398,7 @@ def resolve_monthly_dates() -> tuple:
 # =============================================================================
 
 if __name__ == "__main__":
-    parser = argparse.ArgumentParser(description="Build report cache in Azure Blob Storage")
-    parser.add_argument("--mode", choices=["weekly", "monthly", "both"], default="both",
-                        help="Which cache to build (default: both)")
-    args = parser.parse_args()
-
     start = time.time()
-
-    # Weekly cache disabled — uncomment to re-enable
-    # ws, we = resolve_weekly_dates()
-    # build_weekly_cache(ws, we)
-
     ms, me = resolve_monthly_dates()
     build_monthly_cache(ms, me)
-
-    print(f"\n✓ Cache build complete in {time.time() - start:.1f} seconds")
+    print(f"\n✓ Monthly cache build complete in {time.time() - start:.1f} seconds")

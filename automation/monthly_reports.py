@@ -1,8 +1,9 @@
 """
-monthly_llm.py  —  Monthly Store Report Generator
+monthly_azure_llm.py  —  Monthly Store Report Generator
 ────────────────────────────────────────────────────────────────────────────────
-Reads precomputed data from Azure Blob cache (report_cache.py) instead of
-running heavy SQL queries per store.
+Reads precomputed data from Azure Blob cache (report_cache_monthly.py) instead
+of running heavy SQL queries per store. Falls back to hard exit if cache is
+unavailable (run report_cache_monthly.py first).
 
 Fixes applied:
   [1]  load_dotenv() moved to top — before any os.getenv() call
@@ -15,6 +16,10 @@ Fixes applied:
   [7]  tempfile + finally guard on PDF write — no corrupt file left on crash
   [8]  partner_month.csv written once at end, not per store
   [9]  Cache-first data loading — replaces per-store SQL queries
+  [10] pandas removed from hot path — DuckDB used for all cache filtering;
+       pandas kept only for partner_month.csv (local file, not a bottleneck)
+  [11] ONE shared DuckDB connection for all store queries — registered once,
+       reused across all ~140 stores — no repeated downloads or pandas filters
 ────────────────────────────────────────────────────────────────────────────────
 """
 
@@ -22,21 +27,23 @@ Fixes applied:
 from dotenv import load_dotenv
 load_dotenv()
 
-import pandas as pd
-import pdfkit
-import plotly.graph_objects as go
-import base64
 import os
 import time
 import tempfile
 from io import BytesIO
 from datetime import datetime, timezone, timedelta
+
+import duckdb
+import pandas as pd                  # kept for: partner_month.csv only
+import pdfkit
+import plotly.graph_objects as go
+import base64
 from sqlalchemy import create_engine
 from sqlalchemy.exc import OperationalError
 from sqlalchemy.pool import NullPool                             # [FIX 3]
 from azure.storage.blob import BlobServiceClient, ContentSettings, generate_blob_sas, BlobSasPermissions
 from azure.core.exceptions import ResourceExistsError
-import report_cache                                              # [FIX 9]
+import report_cache_monthly
 
 from llm_recommender import (
     brand_recommendation,
@@ -46,7 +53,7 @@ from llm_recommender import (
 )
 
 
-BASE_DIR = "/base/dir/"
+BASE_DIR = "/base/dir"
 
 # ── Azure Blob Storage  [FIX 4] ───────────────────────────────────────────────
 AZURE_ACCOUNT_NAME      = os.getenv("AZURE_ACCOUNT_NAME", "")
@@ -59,6 +66,16 @@ PARTNER_FILE = os.path.join(BASE_DIR, "partner_month.csv")
 
 # ── Excluded stores  [FIX 5] ─────────────────────────────────────────────────
 EXCLUDED_STORES = {"Ho Marlboro", "Dummy Store --- For Testing Only"}
+
+COLUMN_LABELS = {
+    "brandName":       "Brand",
+    "categoryName":    "Category",
+    "productName":     "Product",
+    "total_sales":     "Sales (₹)",
+    "quantity_sold":   "Qty Sold",
+    "contrib_percent": "Contrib%",
+    "profit_margin":   "Margin%",
+}
 
 
 def require_env(name: str) -> str:
@@ -110,21 +127,67 @@ def safe_read_sql(query, params=None, retries=3, delay=3):
 
 
 # =============================================================================
-# Chart helper (unchanged)
+# DuckDB cache query helper  [FIX 10]
 # =============================================================================
 
-def plot_chart(df, x_col, y_col, title, top_n=10):
+def _make_cache_con(cache: dict) -> duckdb.DuckDBPyConnection:
+    """
+    Create an in-process DuckDB connection and register all PyArrow Tables
+    from the cache dict as virtual tables. Callers query them with plain SQL.
+    The connection is cheap (in-memory, no Postgres attach needed here).
+    """
+    con = duckdb.connect()
+    for table_name, arrow_table in cache.items():
+        if table_name == "meta":
+            continue
+        con.register(table_name, arrow_table)
+    return con
+
+
+# =============================================================================
+# HTML table builder — plain Python, no pandas  [FIX 10]
+# =============================================================================
+
+def _rows_to_html(rows: list[dict]) -> str:
+    """
+    Build an HTML table from a list-of-dicts.
+    Uses COLUMN_LABELS for friendly header names.
+    """
+    if not rows:
+        return ""
+    cols      = list(rows[0].keys())
+    headers   = "".join(f"<th>{COLUMN_LABELS.get(c, c)}</th>" for c in cols)
+    rows_html = []
+    for row in rows:
+        cells = "".join(f"<td>{row[col]}</td>" for col in cols)
+        rows_html.append(f"<tr>{cells}</tr>")
+    return (
+        '<table class="styled-table">'
+        "<thead><tr>" + headers + "</tr></thead>"
+        "<tbody>" + "".join(rows_html) + "</tbody>"
+        "</table>"
+    )
+
+
+# =============================================================================
+# Chart helper — accepts list-of-dicts  [FIX 10]
+# =============================================================================
+
+def plot_chart(rows: list[dict], x_col: str, y_col: str, title: str, top_n: int = 10) -> str:
     """
     Generate a Plotly bar chart and return a base64 image string.
-    NOTE: y_col must be numeric. Do NOT call with %-suffixed columns.
+    NOTE: y_col must be numeric. Do NOT pass columns after the '%' suffix
+    has been appended (contrib_percent, profit_margin) — pass them before.
     """
-    if df.empty:
+    if not rows:
         return ""
-    df_plot = df.head(top_n)
+    top    = rows[:top_n]
+    x_vals = [r[x_col] for r in top]
+    y_vals = [float(r[y_col]) for r in top]
     fig = go.Figure(data=[go.Bar(
-        x=df_plot[x_col],
-        y=df_plot[y_col],
-        text=[f"₹{v:,.0f}" for v in df_plot[y_col]],
+        x=x_vals,
+        y=y_vals,
+        text=[f"₹{v:,.0f}" for v in y_vals],
         textposition="outside",
         marker=dict(color="#0078d7"),
     )])
@@ -178,17 +241,20 @@ def _upload_pdf_to_blob(tmp_path: str, blob_name: str) -> str:
 
 
 # =============================================================================
-# MAIN REPORT FUNCTION
+# MAIN REPORT FUNCTION  [FIX 10 — pandas removed from hot path]
 # =============================================================================
 
-def generate_store_report(store_name: str, cache: dict) -> str | None:
+def generate_store_report(store_name: str, cache: dict, cache_con: duckdb.DuckDBPyConnection) -> str | None:
     """
     Generate monthly PDF for one store. Returns shareable SAS URL or None.
 
     Parameters
     ----------
     store_name : Store to generate report for.
-    cache      : Preloaded dict from report_cache.load_monthly_cache().
+    cache      : Preloaded dict from report_cache_monthly.load_monthly_cache().
+                 Values are PyArrow Tables covering ALL stores.
+    cache_con  : Shared DuckDB connection with all cache tables registered.
+                 Filter queries run here — no pandas, no per-store DB round-trips.
     """
 
     # ── [FIX 2] Default month_start before any conditional ───────────────────
@@ -196,18 +262,21 @@ def generate_store_report(store_name: str, cache: dict) -> str | None:
     month_start_str = "N/A"
     month_end_str   = "N/A"
 
-    # ── store_summary from cache ──────────────────────────────────────────────
-    summary_all = cache["store_summary"]
-    summary_row = summary_all[summary_all["storeName"] == store_name]
+    # ── Pull store row from cache: store_summary (DuckDB query) ──────────────
+    summary_rows = cache_con.execute(
+        "SELECT * FROM store_summary WHERE storeName = ?", [store_name]
+    ).fetchall()
+    summary_cols = [d[0] for d in cache_con.description]
 
-    if summary_row.empty:
+    if not summary_rows:
         print(f"  ⚠ No data for {store_name} in cache — skipping.")
         return None
 
-    total_monthly_sales       = float(summary_row["total_monthly_sales"].iloc[0]       or 0.0)
-    total_monthly_cost        = float(summary_row["total_monthly_cost"].iloc[0]        or 0.0)
-    total_monthly_profit      = float(summary_row["total_monthly_profit"].iloc[0]      or 0.0)
-    avg_profit_margin_percent = float(summary_row["avg_profit_margin_percent"].iloc[0] or 0.0)
+    summary = dict(zip(summary_cols, summary_rows[0]))
+    total_monthly_sales       = float(summary.get("total_monthly_sales")       or 0.0)
+    total_monthly_cost        = float(summary.get("total_monthly_cost")        or 0.0)
+    total_monthly_profit      = float(summary.get("total_monthly_profit")      or 0.0)
+    avg_profit_margin_percent = float(summary.get("avg_profit_margin_percent") or 0.0)
 
     # ── Resolve month dates from cache meta ───────────────────────────────────
     if "meta" in cache and "month_start" in cache["meta"]:
@@ -221,14 +290,17 @@ def generate_store_report(store_name: str, cache: dict) -> str | None:
         print(f"  ⚠ Could not resolve month dates for {store_name} — skipping.")
         return None
 
-    # ── comparison ────────────────────────────────────────────────────────────
-    comp_all = cache["comparison"]
-    comp_row = comp_all[comp_all["storeName"] == store_name]
+    # ── comparison — DuckDB filter ────────────────────────────────────────────
+    comp_rows = cache_con.execute(
+        "SELECT * FROM comparison WHERE storeName = ?", [store_name]
+    ).fetchall()
+    comp_cols = [d[0] for d in cache_con.description]
 
     comparison_text = '<div style="text-align:center;margin-top:10px;"><span style="font-size:18px;color:#666;">Insufficient data for comparison</span></div>'
-    if not comp_row.empty:
-        curr = float(comp_row["current_month_sales"].iloc[0] or 0.0)
-        prev = float(comp_row["prev_3_months_avg"].iloc[0]   or 0.0)
+    if comp_rows:
+        comp = dict(zip(comp_cols, comp_rows[0]))
+        curr = float(comp.get("current_month_sales") or 0.0)
+        prev = float(comp.get("prev_3_months_avg")   or 0.0)
         if prev > 0:
             pct   = ((curr - prev) / prev) * 100
             sign  = "+" if pct >= 0 else ""
@@ -239,12 +311,27 @@ def generate_store_report(store_name: str, cache: dict) -> str | None:
                     <span style="font-size:20px;font-weight:bold;color:{color};">{sign}{pct:.2f}%</span>
                 </div>"""
 
-    # ── brand / category / product — filtered from full-cache DataFrames ──────
-    brand_df    = cache["brand_sales"][cache["brand_sales"]["storeName"]       == store_name].drop(columns=["storeName"]).head(50).reset_index(drop=True)
-    category_df = cache["category_sales"][cache["category_sales"]["storeName"] == store_name].drop(columns=["storeName"]).head(50).reset_index(drop=True)
-    product_df  = cache["product_sales"][cache["product_sales"]["storeName"]   == store_name].drop(columns=["storeName"]).head(100).reset_index(drop=True)
+    # ── brand / category / product — DuckDB filter, return list-of-dicts ─────
+    def _fetch_rows(table: str, limit: int) -> list[dict]:
+        rows = cache_con.execute(f"""
+            SELECT * EXCLUDE (storeName)
+            FROM {table}
+            WHERE storeName = ?
+            ORDER BY total_sales DESC
+            LIMIT {limit}
+        """, [store_name]).fetchall()
+        cols = [d[0] for d in cache_con.description]
+        return [dict(zip(cols, r)) for r in rows]
 
-    # ── LLM calls (before % suffix — numeric columns required) ───────────────
+    brand_rows    = _fetch_rows("brand_sales",    50)
+    category_rows = _fetch_rows("category_sales", 50)
+    product_rows  = _fetch_rows("product_sales",  100)
+
+    # ── LLM calls — convert to DataFrames (llm_recommender expects DataFrames) ─
+    brand_df    = pd.DataFrame(brand_rows)
+    category_df = pd.DataFrame(category_rows)
+    product_df  = pd.DataFrame(product_rows)
+
     print(f"  🤖 Generating LLM recommendations for {store_name}...")
     brand_rec    = brand_recommendation(store_name, brand_df,    total_monthly_sales, month_start=month_start, engine=engine, report_type="monthly")
     category_rec = category_recommendation(store_name, category_df, total_monthly_sales, month_start=month_start, engine=engine, report_type="monthly")
@@ -253,19 +340,23 @@ def generate_store_report(store_name: str, cache: dict) -> str | None:
     # Snapshot with numeric data — before % suffix  [ordering preserved]
     save_monthly_snapshot(store_name, month_start, brand_df, category_df, product_df, engine)
 
-    # ── % suffix (AFTER LLM + snapshot)  [FIX 6] ─────────────────────────────
-    # Column is now consistently 'profit_margin' (lowercase) — dead PROFIT_MARGIN
-    # check removed. Single loop, single check per column.
-    for df in [brand_df, category_df, product_df]:
-        if not df.empty:
-            for col in ["contrib_percent", "profit_margin"]:   # [FIX 6]
-                if col in df.columns:
-                    df[col] = df[col].astype(str) + "%"
+    # ── % suffix on rows (AFTER LLM + snapshot)  [FIX 6] ─────────────────────
+    # Applied to list-of-dicts so we stay out of pandas in the hot path
+    for rows in [brand_rows, category_rows, product_rows]:
+        for row in rows:
+            for col in ["contrib_percent", "profit_margin"]:
+                if col in row and row[col] is not None:
+                    row[col] = str(row[col]) + "%"
 
-    # ── Charts (total_sales still numeric at this point) ──────────────────────
-    brand_chart    = plot_chart(brand_df,    "brandName",    "total_sales", "Top 10 Brands by Sales")
-    category_chart = plot_chart(category_df, "categoryName", "total_sales", "Top 10 Categories by Sales")
-    product_chart  = plot_chart(product_df,  "productName",  "total_sales", "Top 10 Products by Sales")
+    # ── Charts — y_col still numeric in rows before suffix ───────────────────
+    brand_chart    = plot_chart(brand_rows,    "brandName",    "total_sales", "Top 10 Brands by Sales")
+    category_chart = plot_chart(category_rows, "categoryName", "total_sales", "Top 10 Categories by Sales")
+    product_chart  = plot_chart(product_rows,  "productName",  "total_sales", "Top 10 Products by Sales")
+
+    # ── HTML tables ───────────────────────────────────────────────────────────
+    brand_table_html    = _rows_to_html(brand_rows)
+    category_table_html = _rows_to_html(category_rows)
+    product_table_html  = _rows_to_html(product_rows)
 
     # ── HTML ──────────────────────────────────────────────────────────────────
     html_template = f"""
@@ -291,7 +382,7 @@ def generate_store_report(store_name: str, cache: dict) -> str | None:
         </style>
     </head>
     <body>
-        <img src="file:///base/dir//tns.png" class="logo" alt="Company Logo">
+        <img src="file:///base/dir/tns.png" class="logo" alt="Company Logo">
         <h1>📊 Monthly Store Report – {store_name}</h1>
         <div class="date-range">Month: {month_start_str} to {month_end_str}</div>
         <h2>Total Monthly Sales: ₹{total_monthly_sales:,.2f}</h2>
@@ -304,15 +395,15 @@ def generate_store_report(store_name: str, cache: dict) -> str | None:
         </div>
         {comparison_text}
         <div class="table-title">Top 50 Brands (by Sales)</div>
-        {brand_df.to_html(index=False, classes="styled-table")}
+        {brand_table_html}
         {brand_chart}
         {brand_rec}
         <div class="table-title">Top 50 Categories (by Sales)</div>
-        {category_df.to_html(index=False, classes="styled-table")}
+        {category_table_html}
         {category_chart}
         {category_rec}
         <div class="table-title">Top 100 Products (by Sales)</div>
-        {product_df.to_html(index=False, classes="styled-table")}
+        {product_table_html}
         {product_chart}
         {product_rec}
     </body>
@@ -331,7 +422,7 @@ def generate_store_report(store_name: str, cache: dict) -> str | None:
             configuration=PDFKIT_CONFIG,
             options={"enable-local-file-access": ""},
         )
-        shareable_url = _upload_pdf_to_blob(tmp_path, blob_name)   # [FIX 4]
+        shareable_url = _upload_pdf_to_blob(tmp_path, blob_name)
         print(f"  ✅ Uploaded {store_name} → {shareable_url}")
         return shareable_url
     finally:
@@ -346,52 +437,44 @@ def generate_store_report(store_name: str, cache: dict) -> str | None:
 
 if __name__ == "__main__":
     # ── Resolve dates ─────────────────────────────────────────────────────────
-    month_start, month_end = report_cache.resolve_monthly_dates()
+    month_start, month_end = report_cache_monthly.resolve_monthly_dates()
     month_start_str_key    = month_start.isoformat()
 
     # ── Load cache (5 Parquet reads — replaces hundreds of SQL queries) ───────
     print(f"\nLoading monthly cache for {month_start_str_key}...")
     try:
-        cache = report_cache.load_monthly_cache(month_start_str_key)
+        cache = report_cache_monthly.load_monthly_cache(month_start_str_key)
         cache["meta"] = {"month_start": month_start, "month_end": month_end}
         print("✓ Cache loaded from Azure Blob")
     except Exception as e:
-        print(f"⚠ Cache unavailable ({e}) — run: python report_cache.py --mode monthly")
+        print(f"⚠ Cache unavailable ({e}) — run report_cache_monthly.py first.")
         raise SystemExit(1)
 
-    store_names = [
-        s for s in cache["store_summary"]["storeName"].tolist()
-        if s not in EXCLUDED_STORES                              # [FIX 5]
-    ]
+    # ── Build ONE shared DuckDB connection for all store queries  [FIX 11] ───
+    cache_con = _make_cache_con(cache)
+
+    store_names = cache_con.execute(
+        "SELECT storeName FROM store_summary ORDER BY storeName"
+    ).fetchall()
+    store_names = [r[0] for r in store_names if r[0] not in EXCLUDED_STORES]
+
     print(f"Found {len(store_names)} stores.\nGenerating reports...\n")
 
     # ── Generate all reports — collect URLs ───────────────────────────────────
     pdf_links: dict[str, str] = {}
 
-    # store_names = [
-    #     s for s in cache["store_summary"]["storeName"].tolist()
-    #     if s not in EXCLUDED_STORES
-    # ]
-
-    # print(f"Found {len(store_names)} stores.\nGenerating reports...\n")
-
-    # # --- TEST MODE ---
-    # TEST_STORE = "Adchini Aurobindo Marg"   # 👈 put real store name
-
-    # if TEST_STORE:
-    #     print(f"\n⚠ TEST MODE: Running only for → {TEST_STORE}\n")
-    #     store_names = [TEST_STORE] if TEST_STORE in store_names else []
-
     for store in store_names:
         try:
-            url = generate_store_report(store, cache)
+            url = generate_store_report(store, cache, cache_con)
             if url:
                 pdf_links[store] = url
             time.sleep(1)
         except Exception as e:
             print(f"  ❌ Error generating report for {store}: {e}")
 
-    # ── [FIX 8] Write partner_month.csv ONCE after all stores are done ─────────────
+    cache_con.close()
+
+    # ── [FIX 8] Write partner_month.csv ONCE after all stores are done ───────
     if pdf_links and os.path.exists(PARTNER_FILE):
         partner_df = pd.read_csv(PARTNER_FILE)
         if "monthly_pdf_link" not in partner_df.columns:
