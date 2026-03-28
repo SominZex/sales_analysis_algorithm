@@ -7,6 +7,14 @@ from email.mime.text import MIMEText
 from email import encoders
 from datetime import datetime, timedelta
 
+
+import os
+import smtplib
+import pandas as pd
+from email.mime.multipart import MIMEMultipart
+from email.mime.text import MIMEText
+from datetime import datetime, timedelta
+
 SMTP_SERVER = "smtp.gmail.com"
 SMTP_PORT = 587
 SENDER_EMAIL = "sender@mail.com"
@@ -14,11 +22,11 @@ SENDER_PASSWORD = "app_password"
 CC_EMAILS = ["mail1", "mail2", "mail3"]
 BCC_EMAILS = ["bcc@mail.com"]
 
-REPORTS_DIR = "/home/base/dir/store_reports"
-PARTNER_FILE = "/home/base/dir/partner.csv"
+
+PARTNER_FILE = "/base/dir/partner_month.csv"
 
 
-def create_email_body(store_name):
+def create_email_body(store_name, pdf_link):
     """Return the HTML email body for a specific store."""
     today = datetime.now()
     today_str = today.strftime("%d %B %Y")
@@ -48,7 +56,21 @@ def create_email_body(store_name):
                 <li>📦 Quantity sold and average order values</li>
             </ul>
 
-            <p>The attached PDF contains detailed insights with visual charts and performance summaries to help you understand your business trends and make informed decisions.</p>
+            <p>Please click the button below to view your report:</p>
+
+            <div style="text-align: center; margin: 25px 0;">
+                <a href="{pdf_link}" target="_blank"
+                   style="background-color: #0078D7; color: #ffffff; padding: 12px 28px;
+                          text-decoration: none; border-radius: 6px; font-size: 15px;
+                          font-weight: bold; display: inline-block;">
+                    View Monthly Report
+                </a>
+            </div>
+
+            <p style="font-size: 13px; color: #777; text-align: center;">
+                Link expires in 7 days. If the button doesn't work, copy and paste this URL into your browser:<br>
+                <a href="{pdf_link}" style="color: #0078D7; word-break: break-all;">{pdf_link}</a>
+            </p>
 
             <p style="background-color: #f0f8ff; padding: 12px; border-left: 4px solid #0078D7; margin: 15px 0;">
                 <strong>💡 Tip:</strong> Review the comparison metrics to identify growth opportunities and optimize your inventory for the upcoming month.
@@ -59,8 +81,8 @@ def create_email_body(store_name):
             <br>
             <p>Best regards,</p>
             <p><strong>Analytics & Business Insights Team</strong><br>
-            <em>company name</em><br>
-            📧 mail@.in<br>
+            <em>New Shop</em><br>
+            📧 data@newshop.in<br>
             📅 Report Generated: {today_str}</p>
 
             <hr style="margin-top: 25px;">
@@ -74,8 +96,8 @@ def create_email_body(store_name):
     """
 
 
-def send_email_with_attachment(to_email, subject, body, attachment_path):
-    """Send an email with a PDF attachment"""
+def send_email(to_email, subject, body):
+    """Send an HTML email with no attachment."""
     try:
         msg = MIMEMultipart()
         msg["From"] = SENDER_EMAIL
@@ -86,24 +108,12 @@ def send_email_with_attachment(to_email, subject, body, attachment_path):
 
         msg.attach(MIMEText(body, "html"))
 
-        with open(attachment_path, "rb") as f:
-            part = MIMEBase("application", "octet-stream")
-            part.set_payload(f.read())
-            encoders.encode_base64(part)
-            part.add_header("Content-Disposition", f"attachment; filename={os.path.basename(attachment_path)}")
-            msg.attach(part)
-
-        # ✅ Combine all recipients properly
         all_recipients = [to_email] + CC_EMAILS + BCC_EMAILS
 
         # ✅ ZOHO SSL (NO starttls)
         with smtplib.SMTP_SSL(SMTP_SERVER, SMTP_PORT) as server:
             server.login(SENDER_EMAIL, SENDER_PASSWORD)
-            server.sendmail(
-                SENDER_EMAIL,
-                all_recipients,
-                msg.as_string()
-            )
+            server.sendmail(SENDER_EMAIL, all_recipients, msg.as_string())
 
         print(f"✅ Email sent successfully → TO: {to_email}, CC: {CC_EMAILS}, BCC: {BCC_EMAILS}")
 
@@ -114,7 +124,6 @@ def send_email_with_attachment(to_email, subject, body, attachment_path):
 def send_all_reports():
     partners_df = pd.read_csv(PARTNER_FILE)
 
-    # Get previous month
     today = datetime.now()
     first_day_current_month = today.replace(day=1)
     last_day_previous_month = first_day_current_month - timedelta(days=1)
@@ -125,17 +134,15 @@ def send_all_reports():
     for _, row in partners_df.iterrows():
         store_name = row["storeName"]
         email = row["email"]
+        pdf_link = row.get("monthly_pdf_link", "")
 
-        pdf_name = f"{store_name.replace(' ', '_')}_monthly_report.pdf"
-        pdf_path = os.path.join(REPORTS_DIR, pdf_name)
+        if not pdf_link or pd.isna(pdf_link):
+            print(f"⚠️  No PDF link found for store: {store_name}")
+            continue
 
-        if os.path.exists(pdf_path):
-            subject = f"Monthly Performance Report - {store_name} ({previous_month})"
-
-            body = create_email_body(store_name)
-            send_email_with_attachment(email, subject, body, pdf_path)
-        else:
-            print(f"⚠️  Report not found for store: {store_name} at {pdf_path}")
+        subject = f"Monthly Performance Report - {store_name} ({previous_month})"
+        body = create_email_body(store_name, pdf_link)
+        send_email(email, subject, body)
 
     print(f"\n✅ Monthly report distribution completed!")
 

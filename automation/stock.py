@@ -9,11 +9,11 @@ from datetime import datetime
 LOGIN_URL = "https://api.example.in/login"
 STOCK_URL = "https://api.example.in/store-stocks/report/storeStocksCSV"
 
-USERNAME = "user"
-PASSWORD = "pwd"
+USERNAME = "user/pwd"
+PASSWORD = "user/pwd"
 
-STORE_FILE = "/base/url/partner.csv"
-OUTPUT_DIR = "/base/url/store_stocks"
+STORE_FILE = "/base/dir/partner.csv"
+OUTPUT_DIR = "/base/dir/store_stocks"
 
 
 # ───────────────────────── LOGIN ─────────────────────────

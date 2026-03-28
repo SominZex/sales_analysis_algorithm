@@ -10,8 +10,7 @@ from sqlalchemy.engine import Engine
 
 load_dotenv()
 
-# ── Config ─────────────────────────────────────────────────────────────────────
-GROQ_MODEL   = os.getenv("GROQ_MODEL",   "llama-3.1-8b-instant")
+GROQ_MODEL   = os.getenv("GROQ_MODEL",   "openai/gpt-oss-120b")
 OLLAMA_MODEL = os.getenv("OLLAMA_MODEL", "llama3.2:3b")
 OLLAMA_HOST  = os.getenv("OLLAMA_HOST",  "http://localhost:11434")
 
@@ -27,7 +26,7 @@ def _get_client() -> Groq:
     return _client
 
 
-# ── HTML wrapper ───────────────────────────────────────────────────────────────
+#wrapper
 _REC_STYLE = """
 <div style="
     background: #f0f7ff;
@@ -52,17 +51,9 @@ _UNAVAILABLE = _REC_STYLE.format(
          "Check GROQ_API_KEY in .env and that Ollama is running (ollama serve)."
 )
 
-_BULLET_RULES = (
-    "LENGTH RULE: Each bullet must be exactly ONE sentence. "
-    "Maximum 2 items per bullet — pick the most important only. Do not chain multiple items. "
-    "If a section list is empty, draw an insight from another section instead of writing 'none detected'. "
-    "DEDUPLICATION RULE: If a name already appeared in a previous bullet, skip it and pick the next best item. Never repeat the same name in two different bullets. "
-    "GRAMMAR RULE: Use 'this week' or 'this month' — never 'this weekly' or 'this monthly'. "
-    "SPECIFICITY RULE: Never write generic phrases like 'review range', 'optimal assortment', or 'improve pricing' — always name a specific item and a specific action."
-)
 
 
-# ── LLM calls ──────────────────────────────────────────────────────────────────
+# llm call
 
 def _call_groq(prompt: str) -> str:
     client = _get_client()
@@ -70,15 +61,7 @@ def _call_groq(prompt: str) -> str:
         messages=[
             {
                 "role": "system",
-                "content": (
-                    "You are a retail sales analyst writing bullet points for a store manager. "
-                    "You will receive pre-computed intelligence with exact names and numbers. "
-                    "STRICT RULES: "
-                    "1. NEVER write a name not present verbatim in the data. If unsure, skip it. "
-                    "2. NEVER invent or calculate any number — copy numbers directly from the data only. "
-                    "3. Each bullet is ONE sentence maximum. Do not chain multiple items in one bullet. "
-                    "4. No preamble, no closing remarks, bullet points only."
-                ),
+                "content": "You are a retail sales analyst. Write concise bullet point recommendations for a store manager based on the data provided.",
             },
             {"role": "user", "content": prompt},
         ],
@@ -90,10 +73,7 @@ def _call_groq(prompt: str) -> str:
 
 
 def _call_ollama(prompt: str) -> str:
-    system = (
-        "You are a retail sales analyst. Convert pre-computed facts into bullet points. "
-        "One sentence per bullet. Only use names and numbers from the data. No preamble or closing remarks."
-    )
+    system = "You are a retail sales analyst. Write concise bullet point recommendations for a store manager based on the data provided."
     full_prompt = f"[INST] <<SYS>>\n{system}\n<</SYS>>\n\n{prompt} [/INST]"
     resp = requests.post(
         f"{OLLAMA_HOST}/api/generate",
@@ -110,31 +90,31 @@ def _get_recommendation(prompt: str) -> tuple:
         try:
             text = _call_groq(prompt)
             if text:
-                print(f"      ✅ Groq ({GROQ_MODEL}) response received.")
+                print(f"Groq ({GROQ_MODEL}) response received.")
                 time.sleep(2)
                 return text, False
         except Exception as e:
             err = str(e).lower()
             if "rate_limit" in err or "429" in err or "quota" in err:
                 if attempt == 0:
-                    print("      ⚠️  Groq rate limit — waiting 30s then retrying...")
+                    print("Groq rate limit — waiting 30s then retrying...")
                     time.sleep(30)
                     continue
                 else:
-                    print("      ⚠️  Groq rate limit persists — switching to Ollama.")
+                    print("Groq rate limit persists — switching to Ollama.")
             else:
-                print(f"      ⚠️  Groq failed: {str(e)[:80]} — switching to Ollama.")
+                print(f"Groq failed: {str(e)[:80]} — switching to Ollama.")
             break
     try:
-        print(f"      🔄 Calling Ollama ({OLLAMA_MODEL})...")
+        print(f"Calling Ollama ({OLLAMA_MODEL})...")
         text = _call_ollama(prompt)
         if text:
-            print(f"      ✅ Ollama ({OLLAMA_MODEL}) response received.")
+            print(f"Ollama ({OLLAMA_MODEL}) response received.")
             return text, True
     except requests.exceptions.ConnectionError:
-        print(f"      ❌ Ollama not reachable. Run: ollama serve")
+        print(f"Ollama not reachable. Run: ollama serve")
     except Exception as e:
-        print(f"      ❌ Ollama failed: {str(e)[:80]}")
+        print(f"Ollama failed: {str(e)[:80]}")
     return "", False
 
 
@@ -143,10 +123,7 @@ def _wrap_html(text: str, used_fallback: bool = False) -> str:
         return _UNAVAILABLE
     return _REC_STYLE.format(header="New Shop AI Recommendation", body=text)
 
-
-# ══════════════════════════════════════════════════════════════════════════════
-# ── WEEKLY SNAPSHOT ───────────────────────────────────────────────────────────
-# ══════════════════════════════════════════════════════════════════════════════
+# ── WEEKLY SNAPSHOT
 
 def save_weekly_snapshot(
     store_name: str,
@@ -192,15 +169,13 @@ def save_weekly_snapshot(
         _upsert(brand_df,    "weekly_brand_snapshot",    "brandName",    "brandname")
         _upsert(category_df, "weekly_category_snapshot", "categoryName", "categoryname")
         _upsert(product_df,  "weekly_product_snapshot",  "productname",  "productname")
-        print(f"      💾 Snapshot saved for {store_name} (week: {week_start})")
+        print(f"Snapshot saved for {store_name} (week: {week_start})")
 
     except Exception as e:
-        print(f"      ⚠️  Snapshot save failed (non-critical): {e}")
+        print(f"Snapshot save failed (non-critical): {e}")
 
 
-# ══════════════════════════════════════════════════════════════════════════════
-# ── MONTHLY SNAPSHOT ──────────────────────────────────────────────────────────
-# ══════════════════════════════════════════════════════════════════════════════
+# monthly snapshot
 
 def save_monthly_snapshot(
     store_name: str,
@@ -246,15 +221,13 @@ def save_monthly_snapshot(
         _upsert(brand_df,    "monthly_brand_snapshot",    "brandName",    "brandname")
         _upsert(category_df, "monthly_category_snapshot", "categoryName", "categoryname")
         _upsert(product_df,  "monthly_product_snapshot",  "productname",  "productname")
-        print(f"      💾 Monthly snapshot saved for {store_name} (month: {month_start})")
+        print(f"Monthly snapshot saved for {store_name} (month: {month_start})")
 
     except Exception as e:
-        print(f"      ⚠️  Monthly snapshot save failed (non-critical): {e}")
+        print(f"Monthly snapshot save failed (non-critical): {e}")
 
 
-# ══════════════════════════════════════════════════════════════════════════════
-# ── WoW TREND ─────────────────────────────────────────────────────────────────
-# ══════════════════════════════════════════════════════════════════════════════
+# weekly trend
 
 def _fetch_wow_trends(
     store_name: str,
@@ -278,13 +251,11 @@ def _fetch_wow_trends(
             return {}
         return {r[0]: {"prev_sales": float(r[1] or 0), "prev_qty": int(r[2] or 0), "prev_margin": float(r[3] or 0)} for r in rows}
     except Exception as e:
-        print(f"      ⚠️  WoW fetch failed (non-critical): {e}")
+        print(f"WoW fetch failed (non-critical): {e}")
         return {}
 
 
-# ══════════════════════════════════════════════════════════════════════════════
-# ── MoM TREND ─────────────────────────────────────────────────────────────────
-# ══════════════════════════════════════════════════════════════════════════════
+# monthly trend
 
 def _fetch_mom_trends(
     store_name: str,
@@ -307,7 +278,7 @@ def _fetch_mom_trends(
             return {}
         return {r[0]: {"prev_sales": float(r[1] or 0), "prev_qty": int(r[2] or 0), "prev_margin": float(r[3] or 0)} for r in rows}
     except Exception as e:
-        print(f"      ⚠️  MoM fetch failed (non-critical): {e}")
+        print(f"MoM fetch failed (non-critical): {e}")
         return {}
 
 
@@ -420,10 +391,7 @@ def _compute_predictions(df_rows: list, trend_data: dict, name_key: str) -> dict
         "rising_stars":   rising_stars[:3],
     }
 
-
-# ══════════════════════════════════════════════════════════════════════════════
-# ── INTELLIGENCE ENGINE ────────────────────────────────────────────────────────
-# ══════════════════════════════════════════════════════════════════════════════
+#intelligence
 
 def _clean_numeric(series: pd.Series) -> pd.Series:
     return (
@@ -485,7 +453,7 @@ def _compute_intelligence(df: pd.DataFrame, name_col: str, trend_data: dict) -> 
     for _, row in df[df["_qty"] == 1][[name_col, "_sales"]].iterrows():
         anomalies.append(f"{row[name_col]}: only 1 unit sold — dead stock risk")
 
-    # ── Trend signals (works for both WoW and MoM) ────────────────────────────
+    # Trend signals
     declining     = []
     margin_shifts = []
     all_rows = df.to_dict("records")
@@ -520,13 +488,13 @@ def _compute_intelligence(df: pd.DataFrame, name_col: str, trend_data: dict) -> 
         declining     = declining[:3]
         margin_shifts = margin_shifts[:3]
 
-    # ── Enrich key sections with trend deltas (safe — no-op when no prior data) ─
+    # ── Enrich key sections with trend deltas
     top10_enriched      = _enrich_with_trends(top10.to_dict("records"),      trend_data, name_col)
     bot5_enriched       = _enrich_with_trends(bot5_qty.to_dict("records"),   trend_data, name_col)
     low_margin_enriched = _enrich_with_trends(low_margin.to_dict("records"), trend_data, name_col)
     gems_enriched       = _enrich_with_trends(hidden_gems.to_dict("records"),trend_data, name_col)
 
-    # ── Predictive signals ────────────────────────────────────────────────────
+    # Predictive signals
     predictions = _compute_predictions(all_rows, trend_data, name_col)
 
     return {
@@ -548,10 +516,6 @@ def _compute_intelligence(df: pd.DataFrame, name_col: str, trend_data: dict) -> 
         "predictions":            predictions,
     }
 
-
-# ══════════════════════════════════════════════════════════════════════════════
-# ── Public API ─────────────────────────────────────────────────────────────────
-# ══════════════════════════════════════════════════════════════════════════════
 
 def brand_recommendation(
     store_name: str,
@@ -575,7 +539,7 @@ def brand_recommendation(
 
     trend_label  = "MoM" if report_type == "monthly" else "WoW"
     period_label = "month" if report_type == "monthly" else "week"
-    conc = (f"⚠️ Top 3 brands = {intel['top3_revenue_share_pct']}% of revenue — over-concentration"
+    conc = (f"Top 3 brands = {intel['top3_revenue_share_pct']}% of revenue — over-concentration"
             if intel['concentration_flag'] else
             f"Healthy spread — top 3 brands = {intel['top3_revenue_share_pct']}% of revenue")
     trend_section = (
@@ -604,15 +568,13 @@ def brand_recommendation(
 
     prompt = f"""Store: "{store_name}" | {report_type} | Total Sales: Rs.{total_sales:,.2f} | Avg margin: {intel['avg_margin_pct']}%
 
-DEDUPLICATION: Top 2 revenue brands are {", ".join(top2_names)} — these are RESERVED for bullet 1 only. Bullets 2-5 must use different brands.
-
-TOP 10 BRANDS by revenue (includes {trend_label} change where available):
+TOP 10 BRANDS by revenue:
 {json.dumps(intel['top_10_by_revenue'], indent=2)}
 
-BOTTOM 5 BRANDS by quantity (worst first — store avg: {intel['avg_qty_sold']} units):
+BOTTOM 5 BRANDS by quantity (store avg: {intel['avg_qty_sold']} units):
 {json.dumps(intel['bottom_5_by_quantity'], indent=2)}
 
-LOW MARGIN / HIGH RISK BRANDS (already excludes top 2 revenue brands):
+LOW MARGIN / HIGH RISK BRANDS:
 {json.dumps(margin_risk_candidates[:5], indent=2)}
 
 HIGH MARGIN UNDERUTILISED:
@@ -625,36 +587,7 @@ CONCENTRATION: {conc}
 ANOMALIES: {json.dumps(intel['anomalies']) if intel['anomalies'] else "None"}
 {trend_section}{pred_section}
 
-{_BULLET_RULES}
-Write exactly 5 bullets:
-
-1. [STOCK PRIORITY] Top 2 brands by revenue — name + Rs. revenue + margin % + {trend_label} sales_change if available + one action:
-   If sales_change shown → include it in the bullet, e.g. "Red Bull (+18% {trend_label})"
-   margin >30% → "reorder immediately and expand shelf space"
-   margin 15-30% → "maintain stock and add a combo deal with a complementary brand at checkout to grow basket size this {period_label}"
-   margin <15% → "check if any SKUs are being sold below MRP — remove discounts and ensure full shelf-price billing this {period_label}"
-
-2. [MARGIN RISK] Most urgent from LOW MARGIN / HIGH RISK list above — name + margin % + margin_shift if shown + one action:
-   margin <0% → "check if this brand's selling price has been discounted below cost — revert to MRP immediately and place at store entrance or next to the top revenue brand to drive full-price sales volume"
-   margin 0-5% → "verify all SKUs in this brand are billed at MRP — remove any active discounts and move to high-footfall shelf to drive volume at full price"
-   margin 5-10% → "move to eye-level shelf next to the top revenue brand and add a combo price tag — higher visibility will drive volume and compensate for thin margin"
-   margin 10-15% → "increase facings on the top 2 SKUs and place at checkout for impulse purchase — growing volume is the fastest way to improve total profit this {period_label}"
-
-3. [HIDDEN OPPORTUNITY] Best from HIGH MARGIN UNDERUTILISED list above — name + margin % + sales_change if shown + one action:
-   "Place at counter or bundle with the top revenue brand this {period_label} to drive volume"
-
-4. [SLOW MOVERS] Top 2 from BOTTOM QUANTITY — name + quantity + how far below store avg + one action:
-   qty <=5 → "remove from shelf and bundle as freebie with top seller to clear stock"
-   qty 6-15 → "move to checkout counter with a handwritten discount sticker for impulse purchase"
-   qty 16-40 → "place next to top revenue brand with a combo deal tag this {period_label}"
-   qty 41-80 → "run a buy-2-get-1 promotion this {period_label}"
-
-5. [PREDICTIVE / TREND] Use signals in this priority order:
-   If STOCKOUT RISK exists → name the brand + qty_change % + "reorder urgently — demand is accelerating and stock may run out before next delivery"
-   Else if RISING STAR exists → name the brand + sales_change % + "increase shelf space and reorder — gaining momentum"
-   Else if MARGIN EROSION exists → name the brand + margin_shift + "call supplier immediately — margin declining two periods in a row"
-   Else if {trend_label} declining brands exist → name worst + sales_change % + "check supplier delivery and reduce reorder until cause is clear"
-   Else → name the highest mix-shift-risk brand + its contrib% and margin% + "occupies prime shelf space but delivers below-average margin — reduce facings by 30% and trial an alternate higher-margin brand" """
+Write 5 actionable bullet points covering: top revenue brands, margin risks, hidden opportunities, slow movers, and trend/predictive signals."""
     text, fallback = _get_recommendation(prompt)
     return _wrap_html(text, fallback)
 
@@ -681,7 +614,7 @@ def category_recommendation(
 
     trend_label  = "MoM" if report_type == "monthly" else "WoW"
     period_label = "month" if report_type == "monthly" else "week"
-    conc = (f"⚠️ Top 3 categories = {intel['top3_revenue_share_pct']}% of revenue — over-concentration"
+    conc = (f"Top 3 categories = {intel['top3_revenue_share_pct']}% of revenue — over-concentration"
             if intel['concentration_flag'] else
             f"Healthy spread — top 3 categories = {intel['top3_revenue_share_pct']}% of revenue")
     trend_section = (
@@ -710,15 +643,13 @@ def category_recommendation(
 
     prompt = f"""Store: "{store_name}" | {report_type} | Total Sales: Rs.{total_sales:,.2f} | Avg margin: {intel['avg_margin_pct']}%
 
-DEDUPLICATION: Top 2 revenue categories are {", ".join(top2_cat_names)} — RESERVED for bullet 1 only. Bullets 2-5 must use different categories.
-
-TOP 10 CATEGORIES by revenue (includes {trend_label} change where available):
+TOP 10 CATEGORIES by revenue:
 {json.dumps(intel['top_10_by_revenue'], indent=2)}
 
-BOTTOM 5 CATEGORIES by quantity (worst first — store avg: {intel['avg_qty_sold']} units):
+BOTTOM 5 CATEGORIES by quantity (store avg: {intel['avg_qty_sold']} units):
 {json.dumps(intel['bottom_5_by_quantity'], indent=2)}
 
-LOW MARGIN / HIGH RISK CATEGORIES (already excludes top 2 revenue categories):
+LOW MARGIN / HIGH RISK CATEGORIES:
 {json.dumps(cat_margin_candidates[:5], indent=2)}
 
 HIGH MARGIN UNDERUTILISED:
@@ -731,35 +662,7 @@ CONCENTRATION: {conc}
 ANOMALIES: {json.dumps(intel['anomalies']) if intel['anomalies'] else "None"}
 {trend_section}{pred_section}
 
-{_BULLET_RULES}
-Write exactly 5 bullets:
-
-1. [REVENUE DRIVER] Top 2 categories by revenue — name + Rs. revenue + contrib% + {trend_label} sales_change if available + one action:
-   contrib >20% → "ensure full range is always in stock and protect supplier terms"
-   contrib 10-20% → "add 2-3 high-margin SKUs to grow contribution this {period_label}"
-   contrib <10% → "place the top 3 sellers in this category at eye level next to the highest revenue category to increase visibility and drive volume this {period_label}"
-
-2. [MARGIN RISK] Most urgent from LOW MARGIN / HIGH RISK list above — name + margin % + margin_shift if shown + one action:
-   margin <0% → "check if this category's selling price has been discounted below cost — revert to MRP and bundle top SKUs with the highest revenue category to recover full-price sales this {period_label}"
-   margin 0-5% → "verify all SKUs in this category are billed at MRP — remove active discounts and move top sellers to high-footfall shelf to recover margin this {period_label}"
-   margin 5-10% → "shift the top 2 SKUs to eye-level shelf next to the highest revenue category — driving volume is the fastest way to improve total profit at this margin"
-   margin 10-15% → "place the top 3 SKUs at checkout for impulse purchase and add a combo tag with the top revenue category — volume growth will maximise profit this {period_label}"
-
-3. [HIDDEN OPPORTUNITY] Best from HIGH MARGIN UNDERUTILISED list above — name + margin % + sales_change if shown + one action:
-   "Move to higher-traffic shelf or bundle with the top revenue category to drive volume this {period_label}"
-
-4. [SLOW MOVERS] Top 2 from BOTTOM QUANTITY — name + quantity + how far below store avg + one action:
-   qty <=5 → "place remaining units on the shelf next to the top-selling category with a handwritten combo offer tag to drive attachment sales"
-   qty 6-15 → "cut to top 2 SKUs and move to checkout counter for impulse purchase"
-   qty 16-40 → "bundle with top revenue category and add combo price tag this {period_label}"
-   qty 41-80 → "run a category promotion or relocate to higher-footfall position this {period_label}"
-
-5. [PREDICTIVE / TREND] Use signals in this priority order:
-   If STOCKOUT RISK exists → name the category + qty_change % + "reorder urgently — demand accelerating"
-   Else if RISING STAR exists → name the category + sales_change % + "increase range and stock — gaining momentum"
-   Else if MARGIN EROSION exists → name the category + margin_shift + "call supplier — margin declining two periods"
-   Else if {trend_label} declining categories exist → name worst + sales_change % + "check if key SKU out of stock or delivery failed"
-   Else → name the highest mix-shift-risk category + contrib% and margin% + "high shelf share but below-average margin — reduce lowest-margin SKUs by half and replace with proven high-margin alternatives" """
+Write 5 actionable bullet points covering: top revenue categories, margin risks, hidden opportunities, slow movers, and trend/predictive signals."""
     text, fallback = _get_recommendation(prompt)
     return _wrap_html(text, fallback)
 
@@ -786,7 +689,7 @@ def product_recommendation(
 
     trend_label  = "MoM" if report_type == "monthly" else "WoW"
     period_label = "month" if report_type == "monthly" else "week"
-    conc = (f"⚠️ Top 3 products = {intel['top3_revenue_share_pct']}% of revenue — over-concentration"
+    conc = (f"Top 3 products = {intel['top3_revenue_share_pct']}% of revenue — over-concentration"
             if intel['concentration_flag'] else
             f"Healthy spread — top 3 products = {intel['top3_revenue_share_pct']}% of revenue")
     trend_section = (
@@ -815,15 +718,13 @@ def product_recommendation(
 
     prompt = f"""Store: "{store_name}" | {report_type} | Total Sales: Rs.{total_sales:,.2f} | Avg margin: {intel['avg_margin_pct']}%
 
-DEDUPLICATION: Top 2 revenue products are {", ".join(top2_prod_names)} — RESERVED for bullet 1 only. Bullets 2-5 must use different products.
-
-TOP 10 PRODUCTS by revenue (includes {trend_label} change where available):
+TOP 10 PRODUCTS by revenue:
 {json.dumps(intel['top_10_by_revenue'], indent=2)}
 
-BOTTOM 5 PRODUCTS by quantity (worst first — store avg: {intel['avg_qty_sold']} units):
+BOTTOM 5 PRODUCTS by quantity (store avg: {intel['avg_qty_sold']} units):
 {json.dumps(intel['bottom_5_by_quantity'], indent=2)}
 
-LOW MARGIN / HIGH RISK PRODUCTS (already excludes top 2 revenue products):
+LOW MARGIN / HIGH RISK PRODUCTS:
 {json.dumps(prod_margin_candidates[:5], indent=2)}
 
 HIGH MARGIN UNDERUTILISED:
@@ -836,37 +737,7 @@ CONCENTRATION: {conc}
 ANOMALIES: {json.dumps(intel['anomalies']) if intel['anomalies'] else "None"}
 {trend_section}{pred_section}
 
-{_BULLET_RULES}
-Write exactly 5 bullets:
-
-1. [STOCK PRIORITY] Top 2 products by revenue — name + Rs. revenue + margin % + {trend_label} sales_change if available + one action:
-   If sales_change shown → include it, e.g. "Red Bull (+18% {trend_label})"
-   margin >30% → "reorder immediately and give it more shelf space"
-   margin 15-30% → "maintain stock and bundle with a complementary product this {period_label}"
-   margin <15% → "check if this product is being sold below MRP — remove any discount and ensure full shelf-price billing to protect margin"
-
-2. [MARGIN RISK] Most urgent from LOW MARGIN / HIGH RISK list above — name + margin % + margin_shift if shown + one action:
-   margin <0% → "check if this product's selling price has been discounted below cost — revert to MRP immediately and move to eye-level shelf next to the top revenue product to recover full-price sales"
-   margin 0-5% → "verify this product is billed at MRP — remove any active discount and place at checkout for impulse purchase to drive full-price volume"
-   margin 5-10% → "move to eye-level shelf next to the top revenue product and add a combo price tag to drive volume — higher sales will compensate for the thin margin"
-   margin 10-15% → "place at checkout or bundle with the top revenue product — increasing units sold is the fastest path to improving total profit this {period_label}"
-
-3. [HIDDEN OPPORTUNITY] Best from HIGH MARGIN UNDERUTILISED list above — name + margin % + sales_change if shown + one action:
-   "Move to eye level or checkout counter, or bundle with top revenue product for an upsell this {period_label}"
-
-4. [SLOW MOVERS] Top 2 from BOTTOM QUANTITY — name + quantity + how far below store avg + one action:
-   qty ==1 → "single unit — do not reorder, bundle as freebie with top seller to clear"
-   qty 2-5 → "do not reorder — move to checkout with handwritten discount sticker to sell through"
-   qty 6-15 → "move to eye level with price-off label and bundle with complementary top seller this {period_label}"
-   qty 16-40 → "run a buy-2-get-1 deal or place at checkout for impulse visibility this {period_label}"
-   qty 41-80 → "place next to top revenue product with a combo price tag to accelerate movement"
-
-5. [PREDICTIVE / TREND] Use signals in this priority order:
-   If STOCKOUT RISK exists → name the product + qty_change % + "reorder urgently — demand accelerating, stock may run out before next delivery"
-   Else if RISING STAR exists → name the product + sales_change % + "increase shelf space and reorder — gaining momentum"
-   Else if MARGIN EROSION exists → name the product + margin_shift + "call supplier immediately — margin declining two periods in a row"
-   Else if {trend_label} declining products exist → name worst + sales_change % + "check if out of stock or competitor undercutting — reduce reorder until cause is clear"
-   Else → name the highest mix-shift-risk product + contrib% and margin% + "occupies shelf space but delivers below-average margin — delist bottom 2 SKUs and replace with a higher-margin alternative from the same category" """
+Write 5 actionable bullet points covering: top revenue products, margin risks, hidden opportunities, slow movers, and trend/predictive signals."""
     text, fallback = _get_recommendation(prompt)
     return _wrap_html(text, fallback)
 
@@ -907,8 +778,7 @@ Write exactly 5 bullets:
 #   ...
 #   {product_rec}
 #   {product_stock}
-#
-# ─────────────────────────────────────────────────────────────────────────────
+
 
 _LOW_STOCK_STYLE = """
 <div style="
@@ -929,7 +799,7 @@ _LOW_STOCK_STYLE = """
 """
 
 _LOW_STOCK_UNAVAILABLE = _LOW_STOCK_STYLE.format(
-    header="⚠️ New Shop Stock Alert — Unavailable",
+    header="New Shop Stock Alert — Unavailable",
     body="Could not generate stock insight. Check that the store stock CSV exists in the stock directory."
 )
 
@@ -938,12 +808,12 @@ _STOCK_BULLET_RULES = (
     "No generic phrases. No repeated names. Use only numbers from the data."
 )
 
-# ── Stock bullet colour constants ─────────────────────────────────────────────
-_C_NEG     = "#c62828"   # deep red  — negative stock / GRN anomaly
-_C_OOS     = "#e65100"   # dark orange — out of stock
-_C_LOW     = "#f57c00"   # orange    — low stock
-_C_GAP     = "#1565c0"   # blue      — high-value gap product
-_C_PATTERN = "#6a1b9a"   # purple    — systemic pattern
+#Stock bullet colour constants
+_C_NEG     = "#c62828" 
+_C_OOS     = "#e65100" 
+_C_LOW     = "#f57c00" 
+_C_GAP     = "#1565c0" 
+_C_PATTERN = "#6a1b9a" 
 
 def _sb(color: str, text: str) -> str:
     """Wrap one stock alert bullet as a coloured HTML div."""
@@ -971,9 +841,9 @@ def _load_stock_csv(store_name: str, stock_dir: str) -> pd.DataFrame:
                         df[col] = pd.to_numeric(df[col], errors="coerce").fillna(0.0)
                 return df
             except Exception as e:
-                print(f"      ⚠️  Stock CSV read error for {store_name}: {e}")
+                print(f"Stock CSV read error for {store_name}: {e}")
                 return pd.DataFrame()
-    print(f"      ℹ️  No stock CSV found for {store_name} in {stock_dir} — stock insight skipped.")
+    print(f"No stock CSV found for {store_name} in {stock_dir} — stock insight skipped.")
     return pd.DataFrame()
 
 
@@ -995,7 +865,7 @@ def _compute_stock_intelligence(
         return {}
 
     df = stock_df.copy()
-    neg_df = df[df["quantity"] < 0]                      # sold without GRN
+    neg_df = df[df["quantity"] < 0]
     oos_df = df[df["quantity"] == 0]
     low_df = df[(df["quantity"] > 0) & (df["quantity"] <= threshold)]
 
@@ -1024,15 +894,15 @@ def _compute_stock_intelligence(
     oos_items = _agg(oos_df, "OUT_OF_STOCK")
     low_items = _agg(low_df, f"LOW_STOCK (≤{threshold:.0f} units)")
 
-    # ── Negative stock: items sold without GRN — grouped by group_col ────────
+    # Negative stock: items sold without GRN grouped by group_col
     neg_items = []
     if not neg_df.empty:
         agg_neg = (
             neg_df.groupby(group_col)
             .agg(
                 sku_count=("productName", "count"),
-                min_qty=("quantity", "min"),      # most negative value in group
-                total_qty=("quantity", "sum"),    # sum of all negative quantities
+                min_qty=("quantity", "min"),
+                total_qty=("quantity", "sum"),
                 avg_selling_price=("sellingPrice", "mean"),
             )
             .sort_values("sku_count", ascending=False)
@@ -1045,18 +915,18 @@ def _compute_stock_intelligence(
             r["total_qty"]         = round(r["total_qty"], 2)
             r["min_qty"]           = round(r["min_qty"], 2)
 
-    # ── Negative stock: individual products (worst quantity first) ────────────
+    # Negative stock: individual products
     neg_products = []
     if not neg_df.empty and "productName" in neg_df.columns:
         neg_products = (
             neg_df[["productName", group_col, "quantity", "sellingPrice", "vendorName"]]
-            .sort_values("quantity")           # most negative first
+            .sort_values("quantity")
             .head(10)
             .round(2)
             .to_dict("records")
         )
 
-    # High-value OOS: products with highest selling price that are out of stock
+    # High-value
     high_value_oos = []
     if not oos_df.empty:
         hv = (
@@ -1074,13 +944,13 @@ def _compute_stock_intelligence(
     return {
         "oos_items":       oos_items,
         "low_items":       low_items,
-        "neg_items":       neg_items,        # grouped negative stock by dimension
-        "neg_products":    neg_products,     # individual negative-stock SKUs
+        "neg_items":       neg_items, 
+        "neg_products":    neg_products,
         "high_value_oos":  high_value_oos,
         "total_skus":      len(df),
         "oos_count":       len(oos_df),
         "low_count":       len(low_df),
-        "neg_count":       len(neg_df),      # total SKUs with negative qty
+        "neg_count":       len(neg_df), 
         "threshold":       threshold,
     }
 
@@ -1089,12 +959,10 @@ def _wrap_stock_html(bullets: list) -> str:
     if not bullets:
         return _LOW_STOCK_UNAVAILABLE
     return _LOW_STOCK_STYLE.format(
-        header="⚠️ New Shop Stock Alert",
+        header="New Shop Stock Alert",
         body="".join(bullets),
     )
 
-
-# ── Public stock insight API ──────────────────────────────────────────────────
 
 def brand_stock_insight(
     store_name: str,
@@ -1107,7 +975,7 @@ def brand_stock_insight(
     """
     stock_df = _load_stock_csv(store_name, stock_dir)
     if stock_df.empty:
-        return ""   # silently skip — no CSV available
+        return "" 
 
     intel = _compute_stock_intelligence(stock_df, "brand", low_stock_threshold)
     if not intel or (intel["oos_count"] == 0 and intel["low_count"] == 0 and intel["neg_count"] == 0):
@@ -1240,7 +1108,7 @@ def product_stock_insight(
         .to_dict("records")
     ) if not low_df.empty else []
 
-    # Negative stock — most negative quantity first (worst GRN offenders)
+    # Negative stock — most negative quantity first
     top_neg = (
         neg_df[["productName", "brand", "categoryName", "quantity", "sellingPrice", "vendorName"]]
         .sort_values("quantity")
@@ -1300,9 +1168,6 @@ def product_stock_insight(
 
     return _wrap_stock_html(bullets)
 
-# ══════════════════════════════════════════════════════════════════════════════
-# ── RTV INSIGHT FUNCTION ──────────────────────────────────────────────────────
-# ══════════════════════════════════════════════════════════════════════════════
 
 _RTV_STYLE = """
 <div style="
@@ -1352,7 +1217,7 @@ def rtv_insight(store_name: str, rtv_dir: str) -> str:
             try:
                 df = pd.read_csv(path)
             except Exception as e:
-                print(f"      ⚠️  RTV CSV read error for {store_name}: {e}")
+                print(f"RTV CSV read error for {store_name}: {e}")
                 return ""
             break
 
@@ -1371,7 +1236,7 @@ def rtv_insight(store_name: str, rtv_dir: str) -> str:
 
     # Summary
     bullets.append(_rtv_bullet(_C_RTV_HIGH,
-        f"📦 {total_returns} return line(s) today — {total_qty} units worth "
+        f"{total_returns} return line(s) today — {total_qty} units worth "
         f"₹{total_value:,.0f} sent back to vendors."
     ))
 
@@ -1387,7 +1252,7 @@ def rtv_insight(store_name: str, rtv_dir: str) -> str:
         )
         for _, r in vendor_summary.head(2).iterrows():
             bullets.append(_rtv_bullet(_C_RTV_VENDOR,
-                f"🏭 {r['vendorName']}: {int(r['lines'])} SKU(s), "
+                f"{r['vendorName']}: {int(r['lines'])} SKU(s), "
                 f"{int(r['qty'])} units, ₹{r['value']:,.0f} returned today."
             ))
 
@@ -1401,7 +1266,7 @@ def rtv_insight(store_name: str, rtv_dir: str) -> str:
         for _, r in top_products.iterrows():
             vendor = r.get("vendorName", "unknown") if pd.notna(r.get("vendorName")) else "unknown"
             bullets.append(_rtv_bullet(_C_RTV_PROD,
-                f"🔁 {r['productName']} — {int(r['quantity'])} units @ "
+                f"{r['productName']} — {int(r['quantity'])} units @ "
                 f"₹{r['price']:,.0f}, total ₹{r['totalAmount']:,.0f} "
                 f"(vendor: {vendor})."
             ))
@@ -1414,7 +1279,7 @@ def rtv_insight(store_name: str, rtv_dir: str) -> str:
             from collections import Counter
             top_reason, count = Counter(reasons).most_common(1)[0]
             bullets.append(_rtv_bullet(_C_RTV_REASON,
-                f"📋 Most common return reason: \"{top_reason}\" "
+                f"Most common return reason: \"{top_reason}\" "
                 f"({count} occurrence(s)) — investigate with vendor to prevent recurrence."
             ))
 
@@ -1422,6 +1287,6 @@ def rtv_insight(store_name: str, rtv_dir: str) -> str:
         return ""
 
     return _RTV_STYLE.format(
-        header="🔄 Return to Vendor (RTV) — Today's Summary",
+        header="Return to Vendor (RTV) — Today's Summary",
         body="".join(bullets),
     )

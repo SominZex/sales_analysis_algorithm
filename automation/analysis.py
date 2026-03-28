@@ -70,16 +70,18 @@ HEADER_STYLE = {
     'textAlign': 'center'
 }
 
+# ── SWITCHED TO ZOHO ──────────────────────────────────────────────────────────
 EMAIL_CONFIG = {
-    'smtp_server': 'smtp.gmail.com',
-    'smtp_port': 587,
-    'sender_email': 'sender@mail.com',
-    'sender_password': 'app_password',
-    'to': 'data@newshop.in',
-    'cc_recipients': ['mail', 'list'],
-    'tracking_host': '***',
-    'summary_recipient': 'bcc@mail.com'
+    'smtp_server': 'smtp.zoho.in',
+    'smtp_port': 465,
+    'sender_email': 'sender@gmail.com',
+    'sender_password': 'app_pw',
+    'to': 'receiver@anymail.com',
+    'cc_recipients': ['cc@recepient.com'],
+    'tracking_host': 'http://<ip>:8000',
+    'summary_recipient': 'any@mail.in'
 }
+# ─────────────────────────────────────────────────────────────────────────────
 
 
 DB_NAME = os.getenv("DB_NAME")
@@ -103,14 +105,14 @@ app.layout = html.Div([
     # Main container with background color
     html.Div([
         html.Div([
-            html.H2("Daily Sales Report", 
+            html.H2("Daily Sales Report",
                    style={
                        'color': '#2c3e50',
                        'fontSize': '32px',
                        'fontWeight': 'bold',
                        'marginBottom': '10px'
                    }),
-            html.P(id="last-date-display", 
+            html.P(id="last-date-display",
                   style={
                       'color': '#7f8c8d',
                       'fontSize': '16px'
@@ -147,7 +149,7 @@ app.layout = html.Div([
 
         # Store Performance Section
 html.Div([
-        html.H3("Store Performance", 
+        html.H3("Store Performance",
             style={
                 'color': '#2c3e50',
                 'fontSize': '24px',
@@ -194,7 +196,7 @@ html.Div([
                         'color': '#e74c3c', 'fontWeight': 'bold'} for col in ["Number of Orders", "Sales", "Average Order Value"]
                     ]
                 )
-            ], style={'flex': '1', 'textAlign': 'center'}),  
+            ], style={'flex': '1', 'textAlign': 'center'}),
 
             html.Div([
                 dash_table.DataTable(
@@ -206,7 +208,7 @@ html.Div([
                         {"name": "Sales", "id": "Sales"},
                         {"name": "Average Order Value", "id": "Average Order Value"}
                     ],
-                    style_table={'width': '100%', 'overflowX': 'auto'}, 
+                    style_table={'width': '100%', 'overflowX': 'auto'},
                     style_cell={
                         'textAlign': 'center',
                         'padding': '6px',
@@ -232,7 +234,7 @@ html.Div([
                         'color': '#e74c3c', 'fontWeight': 'bold'} for col in ["Number of Orders", "Sales", "Average Order Value"]
                     ]
                 )
-            ], style={'flex': '1', 'textAlign': 'center'})  
+            ], style={'flex': '1', 'textAlign': 'center'})
 
         ], style={'display': 'flex', 'justifyContent': 'center', 'gap': '20px', 'width': '100%'}),
         # --- Add the chart right below the tables ---
@@ -257,7 +259,7 @@ html.Div([
         html.Div(style={'height': '700px'}),
 
         html.Div([
-            html.H3("Category Performance", 
+            html.H3("Category Performance",
                 style={
                     'color': '#2c3e50',
                     'fontSize': '24px',
@@ -267,7 +269,7 @@ html.Div([
                     'borderBottom': '4px solid #3498db',
                     'textAlign': 'center'
                 }),
-            
+
             html.Div([
                 # Left Table
                 dash_table.DataTable(
@@ -296,10 +298,10 @@ html.Div([
                         {'if': {'row_index': 'odd'}, 'backgroundColor': '#fff9e6'},
                         {'if': {'column_id': "Subcategory"}, 'textAlign': 'left'}
                     ] + [
-                        {'if': {'column_id': 'Sales', 'filter_query': '{Sales} contains "🡅"'}, 
+                        {'if': {'column_id': 'Sales', 'filter_query': '{Sales} contains "🡅"'},
                         'color': '#006400', 'fontWeight': 'bold'}
                     ] + [
-                        {'if': {'column_id': 'Sales', 'filter_query': '{Sales} contains "🡇"'}, 
+                        {'if': {'column_id': 'Sales', 'filter_query': '{Sales} contains "🡇"'},
                         'color': '#e74c3c', 'fontWeight': 'bold'}
                     ]
                 ),
@@ -331,10 +333,10 @@ html.Div([
                         {'if': {'row_index': 'odd'}, 'backgroundColor': '#fff9e6'},
                         {'if': {'column_id': "Subcategory"}, 'textAlign': 'left'}
                     ] + [
-                        {'if': {'column_id': 'Sales', 'filter_query': '{Sales} contains "🡅"'}, 
+                        {'if': {'column_id': 'Sales', 'filter_query': '{Sales} contains "🡅"'},
                         'color': '#006400', 'fontWeight': 'bold'}
                     ] + [
-                        {'if': {'column_id': 'Sales', 'filter_query': '{Sales} contains "🡇"'}, 
+                        {'if': {'column_id': 'Sales', 'filter_query': '{Sales} contains "🡇"'},
                         'color': '#e74c3c', 'fontWeight': 'bold'}
                     ]
                 ),
@@ -344,7 +346,7 @@ html.Div([
                     dcc.Graph(
                         id='category-sales-chart',
                         config={'displayModeBar': False},
-                        style={'height': '380px', 'width': '300px'} 
+                        style={'height': '380px', 'width': '300px'}
                     )
                 ], style={
                     'display': 'flex',
@@ -366,8 +368,8 @@ html.Div([
 
         html.Div(style={'height': '300px'}),
 # Brand Performance Section
-        html.Div([  
-            html.H3("Brand Performance", 
+        html.Div([
+            html.H3("Brand Performance",
                 style={
                     'color': '#2c3e50',
                     'fontSize': '24px',
@@ -377,7 +379,7 @@ html.Div([
                     'borderBottom': '4px solid #3498db',
                     'textAlign': 'center'
                 }),
-            
+
             html.Div([
         # Brand tables row
         html.Div([
@@ -409,10 +411,10 @@ html.Div([
                     {'if': {'row_index': 'odd'}, 'backgroundColor': '#fff9e6'},
                     {'if': {'column_id': "Brand Name"}, 'textAlign': 'left'}
                 ] + [
-                    {'if': {'column_id': col, 'filter_query': '{' + col + '} contains "🡅"'}, 
+                    {'if': {'column_id': col, 'filter_query': '{' + col + '} contains "🡅"'},
                     'color': '#006400', 'fontWeight': 'bold'} for col in ["Number of Orders", "Sales", "Average Order Value"]
                 ] + [
-                    {'if': {'column_id': col, 'filter_query': '{' + col + '} contains "🡇"'}, 
+                    {'if': {'column_id': col, 'filter_query': '{' + col + '} contains "🡇"'},
                     'color': '#e74c3c', 'fontWeight': 'bold'} for col in ["Number of Orders", "Sales", "Average Order Value"]
                 ]
             ),
@@ -444,17 +446,17 @@ html.Div([
                     {'if': {'row_index': 'odd'}, 'backgroundColor': '#fff9e6'},
                     {'if': {'column_id': "Brand Name"}, 'textAlign': 'left'}
                 ] + [
-                    {'if': {'column_id': col, 'filter_query': '{' + col + '} contains "🡅"'}, 
+                    {'if': {'column_id': col, 'filter_query': '{' + col + '} contains "🡅"'},
                     'color': '#006400', 'fontWeight': 'bold'} for col in ["Number of Orders", "Sales", "Average Order Value"]
                 ] + [
-                    {'if': {'column_id': col, 'filter_query': '{' + col + '} contains "🡇"'}, 
+                    {'if': {'column_id': col, 'filter_query': '{' + col + '} contains "🡇"'},
                     'color': '#e74c3c', 'fontWeight': 'bold'} for col in ["Number of Orders", "Sales", "Average Order Value"]
                 ]
             )
         ], style={'display': 'flex', 'justifyContent': 'center', 'gap': '20px'}),
 
         # --- Add the chart right below the tables ---
-        
+
         html.Div(style={'height': '230px'}),
         html.Div([
             dcc.Graph(
@@ -477,7 +479,7 @@ html.Div([
 
     # Product Performance Section
     html.Div([
-        html.H3("Product Performance", 
+        html.H3("Product Performance",
             style={
                 'color': '#2c3e50',
                 'fontSize': '24px',
@@ -518,10 +520,10 @@ html.Div([
                     {'if': {'row_index': 'odd'}, 'backgroundColor': '#fff9e6'},
                     {'if': {'column_id': "Product Name"}, 'textAlign': 'left'}
                 ] + [
-                    {'if': {'column_id': col, 'filter_query': '{' + col + '} contains "🡅"'}, 
+                    {'if': {'column_id': col, 'filter_query': '{' + col + '} contains "🡅"'},
                      'color': '#006400', 'fontWeight': 'bold'} for col in ["Number of Orders", "Sales", "Quantity Sold"]
                 ] + [
-                    {'if': {'column_id': col, 'filter_query': '{' + col + '} contains "🡇"'}, 
+                    {'if': {'column_id': col, 'filter_query': '{' + col + '} contains "🡇"'},
                      'color': '#e74c3c', 'fontWeight': 'bold'} for col in ["Number of Orders", "Sales", "Quantity Sold"]
                 ]
             )
@@ -546,7 +548,7 @@ html.Div([
                 style_header={
                     'backgroundColor': '#fff3cd',
                     'fontWeight': 'bold',
-                    'borderBottom': '2px solid #dee2e6' 
+                    'borderBottom': '2px solid #dee2e6'
                 },
                 style_data={
                     'backgroundColor': 'white',
@@ -556,10 +558,10 @@ html.Div([
                     {'if': {'row_index': 'odd'}, 'backgroundColor': '#fff9e6'},
                     {'if': {'column_id': "Product Name"}, 'textAlign': 'left'}
                 ] + [
-                    {'if': {'column_id': col, 'filter_query': '{' + col + '} contains "🡅"'}, 
+                    {'if': {'column_id': col, 'filter_query': '{' + col + '} contains "🡅"'},
                      'color': '#006400', 'fontWeight': 'bold'} for col in ["Number of Orders", "Sales", "Quantity Sold"]
                 ] + [
-                    {'if': {'column_id': col, 'filter_query': '{' + col + '} contains "🡇"'}, 
+                    {'if': {'column_id': col, 'filter_query': '{' + col + '} contains "🡇"'},
                      'color': '#e74c3c', 'fontWeight': 'bold'} for col in ["Number of Orders", "Sales", "Quantity Sold"]
                 ]
             )
@@ -581,7 +583,7 @@ html.Div([
             )
         ], style={
             'display': 'flex',
-            'justifyContent': 'flex-start', 
+            'justifyContent': 'flex-start',
             'alignItems': 'center',
             'marginTop': '10px',
             'marginBottom': '5px',
@@ -607,7 +609,7 @@ def log_event(recipient, report_date, event):
 
 
 async def save_pdf():
-    REPORTS_DIR = "/home/azureuser/azure_analysis_algorithm/reports"
+    REPORTS_DIR = "/base/dir/reports"
     os.makedirs(REPORTS_DIR, exist_ok=True)
     yesterday = (datetime.now() - timedelta(days=1)).strftime("%Y-%m-%d")
     file_path = os.path.join(REPORTS_DIR, f"sales_report_{yesterday}.pdf")
@@ -615,15 +617,15 @@ async def save_pdf():
     async with async_playwright() as p:
         browser = await p.chromium.launch(headless=True)
         page = await browser.new_page()
-        
+
         # Set longer timeout
         page.set_default_timeout(90000)
-        
+
         print("Loading page...")
         await page.goto("http://127.0.0.1:8050", wait_until="networkidle", timeout=60000)
-        
+
         print("Waiting for data to load...")
-        
+
         # Wait for the specific content that indicates data has loaded
         # Wait for the total sales display to appear with actual data
         try:
@@ -637,7 +639,7 @@ async def save_pdf():
             print("Total sales data loaded")
         except:
             print("Warning: Total sales not found, continuing...")
-        
+
         # Wait for tables to have data (not just loading state)
         try:
             await page.wait_for_function(
@@ -650,23 +652,23 @@ async def save_pdf():
             print("Tables loaded with data")
         except:
             print("Warning: Tables may not be fully loaded")
-        
+
         # Wait for charts to render (Plotly creates svg elements)
         try:
             await page.wait_for_selector('.js-plotly-plot .plotly', timeout=30000)
             print("Charts loaded")
         except:
             print("Warning: Charts may not be fully loaded")
-        
+
         # Additional wait to ensure everything is rendered
         print("Waiting additional 20 seconds for complete rendering...")
         await asyncio.sleep(20)
-        
+
         # Verify content before generating PDF
         content = await page.content()
         if "Loading..." in content and "Total Sales" not in content:
             print("WARNING: Page still showing loading state!")
-        
+
         print("Generating PDF...")
         await page.pdf(
             path=file_path,
@@ -685,7 +687,7 @@ def send_email_with_attachment():
     try:
         yesterday = (datetime.now() - timedelta(days=1)).strftime("%Y-%m-%d")
         file_path = os.path.join("reports", f"sales_report_{yesterday}.pdf")
-        
+
         if not os.path.exists(file_path):
             print(f"PDF file not found: {file_path}")
             return False
@@ -693,8 +695,8 @@ def send_email_with_attachment():
         # Create single email with TO and CC
         msg = MIMEMultipart('alternative')
         msg['From'] = EMAIL_CONFIG['sender_email']
-        msg['To'] = EMAIL_CONFIG['to']  # data@newshop.in
-        msg['Cc'] = ', '.join(EMAIL_CONFIG['cc_recipients'])  # All other recipients in CC
+        msg['To'] = EMAIL_CONFIG['to']
+        msg['Cc'] = ', '.join(EMAIL_CONFIG['cc_recipients'])
         msg['Subject'] = f"Daily Sales Report - {yesterday}"
 
         # Unique ID for this email for robust tracking
@@ -725,13 +727,12 @@ def send_email_with_attachment():
 
         # Send to all recipients (TO + CC)
         all_recipients = [EMAIL_CONFIG['to']] + EMAIL_CONFIG['cc_recipients']
-        
-        # Server Config
-        server = smtplib.SMTP(EMAIL_CONFIG['smtp_server'], EMAIL_CONFIG['smtp_port'])
-        server.starttls()
-        server.login(EMAIL_CONFIG['sender_email'], EMAIL_CONFIG['sender_password'])
-        server.sendmail(EMAIL_CONFIG['sender_email'], all_recipients, msg.as_string())
-        server.quit()
+
+        # ── ZOHO SSL — no STARTTLS ────────────────────────────────────────────
+        with smtplib.SMTP_SSL(EMAIL_CONFIG['smtp_server'], EMAIL_CONFIG['smtp_port']) as server:
+            server.login(EMAIL_CONFIG['sender_email'], EMAIL_CONFIG['sender_password'])
+            server.sendmail(EMAIL_CONFIG['sender_email'], all_recipients, msg.as_string())
+        # ─────────────────────────────────────────────────────────────────────
 
         print(f"Email sent to {EMAIL_CONFIG['to']} with CC to {len(EMAIL_CONFIG['cc_recipients'])} recipients")
 
@@ -769,8 +770,8 @@ async def generate_and_send_report():
      Output('last-date-display', 'children'),
      Output('total-sales-display', 'children'),
      Output("weekly-growth-display", "children")],
-    
-    [Input('date-picker', 'start_date'), 
+
+    [Input('date-picker', 'start_date'),
      Input('date-picker', 'end_date')]
 )
 def update_tables(start_date, end_date):
@@ -780,36 +781,36 @@ def update_tables(start_date, end_date):
             start_date = pd.to_datetime(start_date)
         if isinstance(end_date, str):
             end_date = pd.to_datetime(end_date)
-            
+
         # Fetch sales data
         store_data, chart_data = fetch_sales_data(start_date, end_date)
         mid_index_store = len(store_data) // 2
-        store_left = store_data.iloc[:mid_index_store]   
+        store_left = store_data.iloc[:mid_index_store]
         store_right = store_data.iloc[mid_index_store:]
 
         fig = create_store_sales_chart(chart_data, top_n=30)
 
         category_data = fetch_subcategory_data(start_date, end_date)
         mid_index_category = len(category_data) // 2
-        category_left = category_data.iloc[:mid_index_category]   
+        category_left = category_data.iloc[:mid_index_category]
         category_right = category_data.iloc[mid_index_category:]
         category_fig = create_category_sales_chart(category_data, top_n=15)
-        
+
         brand_data = fetch_brand_data(start_date, end_date)
         mid_index_brand = len(brand_data) // 2
         brand_left = brand_data.iloc[:mid_index_brand]
         brand_right = brand_data.iloc[mid_index_brand:]
         # Fixed: Pass brand_data to the chart function
         brand_fig = create_brand_sales_bar_chart(brand_data, top_n=30)
-        
+
         product_data = fetch_product_data(start_date, end_date)
         mid_index_product = len(product_data) // 2
         product_left = product_data.iloc[:mid_index_product]
         product_right = product_data.iloc[mid_index_product:]
         product_fig = create_product_sales_bar_chart(product_data, top_n=30)
-        
+
         last_date = get_last_date()
-        
+
         formatted_date = last_date.strftime('%B %d, %Y')
         date_display = html.P([
             "📅 This report compares the latest available sales data with the average sales from the previous 7 days, Update: ",
@@ -817,14 +818,14 @@ def update_tables(start_date, end_date):
         ], style={'fontSize': '16px', 'color': '#2c3e50'})
 
         total_sales, weekly_growth = fetch_total_sales()
-        total_sales_display = f"📊 Total Sales: ₹{total_sales:,.2f}" 
+        total_sales_display = f"📊 Total Sales: ₹{total_sales:,.2f}"
 
         growth_color = "#006400" if weekly_growth > 0 else "#e74c3c"
         weekly_growth_display = html.Span(
-            f"📈 Avg Weekly Growth: {weekly_growth:.2f}%", 
+            f"📈 Avg Weekly Growth: {weekly_growth:.2f}%",
             style={'fontWeight': 'bold', 'color': growth_color, 'fontSize': '20px'}
         )
-        
+
         return (
             store_left.to_dict('records'),
             store_right.to_dict('records'),
@@ -842,8 +843,8 @@ def update_tables(start_date, end_date):
             total_sales_display,
             weekly_growth_display
         )
-        
-    except Exception as e: 
+
+    except Exception as e:
         print(f"Error: {e}")
         import traceback
         print(f"Full traceback: {traceback.format_exc()}")
@@ -858,14 +859,14 @@ def run_server():
 async def generate_and_send_report():
     """Main function to orchestrate the entire process"""
     print("Starting Dash server...")
-    
+
     # Start server in background thread
     server_thread = threading.Thread(target=run_server, daemon=True)
     server_thread.start()
-    
+
     # Wait for server to be ready
     print("Waiting for server to start...")
-    max_retries = 60 
+    max_retries = 60
     for i in range(max_retries):
         try:
             response = requests.get("http://127.0.0.1:8050", timeout=5)
@@ -879,25 +880,25 @@ async def generate_and_send_report():
     else:
         print("Server failed to start within timeout")
         return False
-    
+
     # Give server more time to fully initialize
     print("Waiting for server to fully initialize...")
     time.sleep(10)
-    
+
     try:
         # Generate PDF
         print("Generating PDF report...")
         await save_pdf()
-        
+
         # Send email
         print("Sending email...")
         success = send_email_with_attachment()
-        
+
         if success:
             print("Report generation and email sending completed successfully!")
         else:
             print("Error occurred during email sending")
-            
+
     finally:
         # Terminate the process (this will kill the server)
         print("Shutting down server...")

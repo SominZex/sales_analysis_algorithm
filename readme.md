@@ -1,6 +1,8 @@
 # Sales Intelligence Automation Engine
 
-> A production-grade, fully automated analytics platform that ingests retail sales data, computes deterministic business intelligence signals, and delivers LLM-grounded operational recommendations via scheduled reports and real-time alerts — with zero manual intervention after deployment.
+> This system is not a dashboard. It is a production-grade lakehouse-driven sales intelligence platform designed for multi-store retail operations.
+
+It ingests transactional data, processes it through a Bronze–Silver–Gold data lake architecture on Azure Blob Storage, computes deterministic business intelligence signals, and delivers LLM-grounded operational recommendations, automated reports, and real-time alerts — with zero manual intervention.
 
 ---
 
@@ -29,15 +31,16 @@ This system is not a dashboard. It is an automated sales intelligence engine bui
 
 **What it does:**
 
-- Ingests daily sales data via API into a PostgreSQL analytics store
-- Validates schema and data quality before any record enters the database
-- Computes revenue, margin, growth, and risk signals deterministically
-- Generates LLM-grounded action recommendations constrained to pre-computed facts
-- Produces Daily, Weekly, and Monthly PDF reports per store
-- Distributes reports via Email and WhatsApp
-- Detects low stock, negative stock (GRN anomalies), and RTV patterns
-- Sends targeted WhatsApp stock alerts to business partners
-- Exposes full pipeline observability via Prometheus and Grafana
+- Ingests daily sales data into a Bronze (raw) data lake layer
+- Transforms and validates data into Silver (cleaned Parquet datasets)
+- Computes Gold-layer pre-aggregated analytics for fast serving
+- Uses PostgreSQL as a low-latency serving layer
+- Generates Daily, Weekly, Monthly reports using precomputed data
+- Sends automated reports via Email and WhatsApp
+- Detects low stock, dead inventory, and operational risks
+- Sends real-time WhatsApp alerts for inventory issues
+- Generates LLM-based recommendations grounded in structured data
+- Exposes full observability via Prometheus + Grafana
 
 ---
 
@@ -48,12 +51,24 @@ flowchart TD
 
 A[Retail Sales API]
 
-subgraph Data Engineering
-B[Apache Airflow Scheduler]
-C[ETL Pipeline]
-D[PostgreSQL Analytics Store]
+%% ---------------------------
+%% Data Lake + Engineering Layer
+%% ---------------------------
+subgraph Data Lake (Azure Blob)
+B[Bronze - Raw CSV]
+C[Silver - Cleaned Parquet]
+D[Gold - Aggregated Metrics]
 end
 
+subgraph Data Engineering
+B2[Apache Airflow Scheduler]
+C2[ETL Pipeline]
+E2[PostgreSQL Serving Layer]
+end
+
+%% ---------------------------
+%% Intelligence Layer
+%% ---------------------------
 subgraph Intelligence Engine
 E[KPI Computation]
 F[Trend Detection]
@@ -61,6 +76,9 @@ G[Risk Scoring]
 H[Structured Insights]
 end
 
+%% ---------------------------
+%% LLM Layer
+%% ---------------------------
 subgraph LLM Layer
 I[Groq LLaMA 3.1 — Primary]
 J[Ollama — Fallback]
@@ -68,6 +86,9 @@ K[Operational Recommendations]
 W[WhatsApp LLM Summary]
 end
 
+%% ---------------------------
+%% Reporting Layer
+%% ---------------------------
 subgraph Reporting
 L[Report Generator]
 M[Daily Report]
@@ -75,16 +96,25 @@ N[Weekly Report]
 O[Monthly Report]
 end
 
+%% ---------------------------
+%% Distribution Layer
+%% ---------------------------
 subgraph Distribution
 P[Email Delivery]
 Q[WhatsApp Automation]
 end
 
+%% ---------------------------
+%% Inventory Monitoring
+%% ---------------------------
 subgraph Inventory Monitoring
 X[Stock Fetch Pipeline]
 Y[RTV Fetch Pipeline]
 end
 
+%% ---------------------------
+%% Observability
+%% ---------------------------
 subgraph Observability
 R[Prometheus]
 S[Pushgateway]
@@ -92,36 +122,56 @@ T[Node Exporter]
 U[Grafana Dashboards]
 end
 
-A --> B
+%% ---------------------------
+%% Flow Connections
+%% ---------------------------
+
+A --> B2
+B2 --> C2
+
+%% Lakehouse Flow
+C2 --> B
 B --> C
 C --> D
 
+%% Serving Layer
+D --> E2
+
+%% Intelligence Flow
 D --> E
 E --> F
 F --> G
 G --> H
 
+%% LLM Flow
 H --> I
 H --> J
 I --> K
 J --> K
 K --> L
 
+%% Reporting Flow
 L --> M
 L --> N
 L --> O
 
+%% WhatsApp + Email
 N --> W
 W --> Q
 M --> Q
 N --> P
 O --> P
 
+%% Dashboard
+E2 --> U
+
+%% Inventory
 A --> X
 A --> Y
 
-B --> S
-C --> S
+%% Observability
+B2 --> S
+C2 --> S
 E --> S
 L --> S
 P --> S
@@ -146,6 +196,21 @@ R --> U
 | Distribution | SMTP + WhatsApp Business API | Email and WhatsApp delivery |
 | Inventory | REST API | Stock and RTV data ingestion |
 | Observability | Prometheus + Grafana | Metrics, dashboards, alerting |
+
+### Lakehouse & Serving Architecture
+
+| Layer       | Description                                      |
+| ----------- | ------------------------------------------------ |
+| **Bronze**  | Raw immutable ingestion layer (CSV)              |
+| **Silver**  | Cleaned, validated, partitioned Parquet datasets |
+| **Gold**    | Precomputed aggregated metrics for analytics     |
+| **Serving** | PostgreSQL for low-latency queries               |
+
+## Key Design Decision:
+- Replayability — Bronze layer enables full pipeline reprocessing
+- Performance — Parquet + partitioning reduces query cost
+- Precomputation — Gold layer eliminates runtime aggregation
+- Separation of concerns — ingestion, processing, and serving are decoupled
 
 ---
 
@@ -173,6 +238,11 @@ flowchart TD
 
 The master DAG (`sales_master_pipeline`) runs at `00:25` daily and branches deterministically based on the day of week and day of month. Weekly and monthly tasks execute sequentially after the daily chain completes, ensuring consistent data state at every stage.
 
+## Execution Model
+- Heavy computation occurs in Silver/Gold layers (batch)
+- Reports and dashboards read precomputed Gold datasets
+- This enables near real-time reporting with minimal compute overhead
+
 ---
 
 ## Core Capabilities
@@ -184,12 +254,15 @@ The master DAG (`sales_master_pipeline`) runs at `00:25` daily and branches dete
 - Time-window controlled processing with explicit scheduling boundaries
 - Critical validation failures halt the pipeline; non-critical anomalies are logged and surfaced in Grafana
 
-### Intelligence Engine
+### Computation Engine
 - Revenue, quantity, margin, and contribution KPIs per store, brand, category, and product
 - WoW (Week-over-Week) and MoM (Month-over-Month) trend comparisons via snapshot tables
 - Risk scoring: stockout risk, margin erosion, slow movers, concentration flags
 - Anomaly detection: negative margins, single-unit dead stock, GRN discrepancies
 - Predictive signals: rising stars, demand acceleration, margin decline trajectories
+- Lakehouse architecture
+- Precomputed serving layer
+- Vectorless AI querying
 
 ### Snapshot Memory
 Historical snapshots are persisted to PostgreSQL after each run, enabling trend comparisons across periods without re-querying raw transaction data.
@@ -209,7 +282,16 @@ The intelligence engine operates as a pure computation layer — no LLM involvem
 - Mix-shift risk (high revenue share, below-average margin)
 - Predictive signals: stockout risk, margin erosion, rising stars
 
-This deterministic approach ensures LLM recommendations are grounded in actual numbers — the model cannot invent data it was not given.
+
+## Agent-Ready Architecture (Vectorless AI)
+
+#### The system supports vectorless agent-based querying over structured data:
+
+- No embeddings required
+- Uses SQL / structured queries over Gold layer
+- Ensures deterministic, hallucination-free responses
+- Enables natural language analytics over business metrics
+- This deterministic approach ensures LLM recommendations are grounded in actual numbers — the model cannot invent data it was not given.
 
 ---
 
@@ -261,6 +343,12 @@ The LLM layer is a **rendering layer, not a decision engine**. It receives pre-c
 - MoM consolidated performance
 - Trend-aware intelligence insights
 - Strategic performance summary
+
+### Performance Optimization
+- Reports are generated from precomputed Gold-layer datasets
+- Eliminates runtime joins and aggregations
+- Enables fast report generation at scale
+
 
 All reports are generated as PDF files using `pdfkit` / `wkhtmltopdf` and are stored per store in `/store_reports/`.
 

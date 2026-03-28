@@ -9,11 +9,11 @@ import argparse
 LOGIN_URL = "https://api.example.in/login"
 RTV_URL   = "https://api.example.in/rtvstore-stocks/RTVreport"
 
-USERNAME = "pwd/user"
-PASSWORD = "pwd/user"
+USERNAME = "user/pwd"
+PASSWORD = "user/pwd"
 
-STORE_FILE = "/base/url/partner.csv"
-OUTPUT_DIR = "/base/url/store_rtv"   # safer disk
+STORE_FILE = "/base/dir/partner.csv"
+OUTPUT_DIR = "/base/dir/store_rtv"   # safer disk
 
 
 # ───────────────────────── LOGIN ─────────────────────────
