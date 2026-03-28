@@ -52,15 +52,18 @@ flowchart TD
 A[Retail Sales API]
 
 %% ---------------------------
-%% Data Lake + Engineering Layer
+%% Data Lake Layer
 %% ---------------------------
-subgraph Data Lake (Azure Blob)
+subgraph Data_Lake_Azure_Blob
 B[Bronze - Raw CSV]
 C[Silver - Cleaned Parquet]
 D[Gold - Aggregated Metrics]
 end
 
-subgraph Data Engineering
+%% ---------------------------
+%% Data Engineering
+%% ---------------------------
+subgraph Data_Engineering
 B2[Apache Airflow Scheduler]
 C2[ETL Pipeline]
 E2[PostgreSQL Serving Layer]
@@ -69,7 +72,7 @@ end
 %% ---------------------------
 %% Intelligence Layer
 %% ---------------------------
-subgraph Intelligence Engine
+subgraph Intelligence_Engine
 E[KPI Computation]
 F[Trend Detection]
 G[Risk Scoring]
@@ -79,15 +82,15 @@ end
 %% ---------------------------
 %% LLM Layer
 %% ---------------------------
-subgraph LLM Layer
-I[Groq LLaMA 3.1 — Primary]
-J[Ollama — Fallback]
+subgraph LLM_Layer
+I[Groq LLaMA 3.1 - Primary]
+J[Ollama - Fallback]
 K[Operational Recommendations]
 W[WhatsApp LLM Summary]
 end
 
 %% ---------------------------
-%% Reporting Layer
+%% Reporting
 %% ---------------------------
 subgraph Reporting
 L[Report Generator]
@@ -97,7 +100,7 @@ O[Monthly Report]
 end
 
 %% ---------------------------
-%% Distribution Layer
+%% Distribution
 %% ---------------------------
 subgraph Distribution
 P[Email Delivery]
@@ -107,7 +110,7 @@ end
 %% ---------------------------
 %% Inventory Monitoring
 %% ---------------------------
-subgraph Inventory Monitoring
+subgraph Inventory_Monitoring
 X[Stock Fetch Pipeline]
 Y[RTV Fetch Pipeline]
 end
@@ -155,14 +158,14 @@ L --> M
 L --> N
 L --> O
 
-%% WhatsApp + Email
+%% Distribution
 N --> W
 W --> Q
 M --> Q
 N --> P
 O --> P
 
-%% Dashboard
+%% Dashboard (via serving layer)
 E2 --> U
 
 %% Inventory
