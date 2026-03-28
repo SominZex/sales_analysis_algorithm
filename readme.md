@@ -25,9 +25,6 @@ It ingests transactional data, processes it through a Bronze–Silver–Gold dat
 
 ---
 
-## Overview
-
-This system is not a dashboard. It is an automated sales intelligence engine built for multi-store retail operations. Every day, it ingests transactional data, computes KPIs and risk signals, generates store-level LLM recommendations, produces PDF reports, and distributes them — entirely without human intervention.
 
 **What it does:**
 
@@ -54,7 +51,7 @@ A[Retail Sales API]
 %% ---------------------------
 %% Data Lake Layer
 %% ---------------------------
-subgraph Data_Lake_Azure_Blob
+subgraph Data Lake - Azure Blob
 B[Bronze - Raw CSV]
 C[Silver - Cleaned Parquet]
 D[Gold - Aggregated Metrics]
@@ -192,7 +189,8 @@ R --> U
 | Layer | Technology | Responsibility |
 |---|---|---|
 | Orchestration | Apache Airflow | DAG scheduling, retries, dependency management |
-| Data | PostgreSQL | Analytics storage, snapshot persistence |
+| Data Lake | Azure Blob Storage | Bronze/Silver/Gold layers |
+| Serving | PostgreSQL | Low-latency query serving |
 | Intelligence | Python — Pandas | KPI computation, trend detection, risk scoring |
 | LLM | Groq + Ollama | Structured recommendation generation |
 | Reporting | Python — pdfkit | PDF report generation per store |
@@ -209,7 +207,7 @@ R --> U
 | **Gold**    | Precomputed aggregated metrics for analytics     |
 | **Serving** | PostgreSQL for low-latency queries               |
 
-## Key Design Decision:
+## Key Design Decisions:
 - Replayability — Bronze layer enables full pipeline reprocessing
 - Performance — Parquet + partitioning reduces query cost
 - Precomputation — Gold layer eliminates runtime aggregation
@@ -263,9 +261,7 @@ The master DAG (`sales_master_pipeline`) runs at `00:25` daily and branches dete
 - Risk scoring: stockout risk, margin erosion, slow movers, concentration flags
 - Anomaly detection: negative margins, single-unit dead stock, GRN discrepancies
 - Predictive signals: rising stars, demand acceleration, margin decline trajectories
-- Lakehouse architecture
-- Precomputed serving layer
-- Vectorless AI querying
+
 
 ### Snapshot Memory
 Historical snapshots are persisted to PostgreSQL after each run, enabling trend comparisons across periods without re-querying raw transaction data.
