@@ -75,7 +75,7 @@ EMAIL_CONFIG = {
     'smtp_port': 587,
     'sender_email': 'sender@mail.com',
     'sender_password': 'app_password',
-    'to': 'data@newshop.in',
+    'to': 'data@mail.com',
     'cc_recipients': ['mail', 'list'],
     'tracking_host': '***',
     'summary_recipient': 'bcc@mail.com'
