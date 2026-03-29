@@ -192,7 +192,7 @@ R --> U
 | Orchestration | Apache Airflow | DAG scheduling, retries, dependency management |
 | Data Lake | Azure Blob Storage | Bronze/Silver/Gold layers |
 | Serving | PostgreSQL | Low-latency query serving |
-| Intelligence | Python — Pandas | KPI computation, trend detection, risk scoring |
+| Intelligence | Python — DuckDB | KPI computation, trend detection, risk scoring |
 | LLM | Groq + Ollama | Structured recommendation generation |
 | Reporting | Python — pdfkit | PDF report generation per store |
 | Distribution | SMTP + WhatsApp Business API | Email and WhatsApp delivery |
