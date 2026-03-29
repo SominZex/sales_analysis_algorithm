@@ -4,6 +4,7 @@
 
 It ingests transactional data, processes it through a Bronze–Silver–Gold data lake architecture on Azure Blob Storage, computes deterministic business intelligence signals, and delivers LLM-grounded operational recommendations, automated reports, and real-time alerts — with zero manual intervention.
 
+The system runs completely unattended. No human in the loop.
 ---
 
 ## Table of Contents
