@@ -75,12 +75,12 @@ HEADER_STYLE = {
 EMAIL_CONFIG = {
     'smtp_server': 'smtp.zoho.in',
     'smtp_port': 465,
-    'sender_email': 'sender@gmail.com',
-    'sender_password': 'app_pw',
-    'to': 'mail@mail.in',
-    'cc_recipients': ['mail@mail.in'],
+    'sender_email': 'sender@mail.com',
+    'sender_password': 'app_pwd',
+    'to': 'reciever@gmail.com',
+    'cc_recipients': ['cc@mail.com'],
     'tracking_host': 'http://<ip>:8000',
-    'summary_recipient': 'any@mail.in'
+    'summary_recipient': 'summary@mail.com'
 }
 # ─────────────────────────────────────────────────────────────────────────────
 
@@ -727,7 +727,7 @@ def update_tables(start_date, end_date):
 # =============================================================================
 
 async def save_pdf():
-    REPORTS_DIR = "/home/azureuser/azure_analysis_algorithm/reports"
+    REPORTS_DIR = "/base/dir/reports"
     os.makedirs(REPORTS_DIR, exist_ok=True)
     yesterday = (datetime.now() - timedelta(days=1)).strftime("%Y-%m-%d")
     file_path = os.path.join(REPORTS_DIR, f"sales_report_{yesterday}.pdf")
@@ -931,4 +931,8 @@ async def generate_and_send_report():
 
 
 if __name__ == '__main__':
-    asyncio.run(generate_and_send_report())
+    import sys
+    sys.path.insert(0, "/home/azureuser/azure_analysis_algorithm")
+    from monitoring.metrics import task_timer
+    with task_timer("run_analysis"):
+        asyncio.run(generate_and_send_report())

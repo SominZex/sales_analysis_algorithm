@@ -2,26 +2,19 @@ import os
 import smtplib
 import pandas as pd
 from email.mime.multipart import MIMEMultipart
-from email.mime.base import MIMEBase
-from email.mime.text import MIMEText
-from email import encoders
-from datetime import datetime, timedelta
-
-
-import os
-import smtplib
-import pandas as pd
-from email.mime.multipart import MIMEMultipart
 from email.mime.text import MIMEText
 from datetime import datetime, timedelta
+import sys
+sys.path.insert(0, "/base/dir")
+from monitoring.metrics import task_timer, mail_timer, record_mail_sent
 
-SMTP_SERVER = "smtp.gmail.com"
-SMTP_PORT = 587
+# SWITCHED TO ZOHO
+SMTP_SERVER = "smtp.zoho.in"
+SMTP_PORT = 465
 SENDER_EMAIL = "sender@mail.com"
-SENDER_PASSWORD = "app_password"
-CC_EMAILS = ["mail1", "mail2", "mail3"]
-BCC_EMAILS = ["bcc@mail.com"]
-
+SENDER_PASSWORD = "app_pwd"
+CC_EMAILS = ['firstmail', 'secondmail']
+BCC_EMAILS = ["bccmail"]
 
 PARTNER_FILE = "/base/dir/partner_month.csv"
 
@@ -142,10 +135,17 @@ def send_all_reports():
 
         subject = f"Monthly Performance Report - {store_name} ({previous_month})"
         body = create_email_body(store_name, pdf_link)
-        send_email(email, subject, body)
+        try:
+            send_email(email, subject, body)
+            record_mail_sent("monthly", True)               
+        except Exception as e:
+            record_mail_sent("monthly", False)    
+            print(f"❌ Failed to record mail for {store_name}: {e}")
 
     print(f"\n✅ Monthly report distribution completed!")
 
 
 if __name__ == "__main__":
-    send_all_reports()
+    with task_timer("monthly_mail"):
+        with mail_timer("monthly"):
+            send_all_reports()

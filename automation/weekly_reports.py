@@ -41,7 +41,12 @@ from sqlalchemy.pool import NullPool
 from azure.storage.blob import BlobServiceClient, ContentSettings, generate_blob_sas, BlobSasPermissions
 from azure.core.exceptions import ResourceExistsError
 import report_cache
-
+import sys
+sys.path.insert(0, "/base/dir")
+from monitoring.metrics import (
+    task_timer, record_task_error,
+    report_timer, record_report, record_stores_processed,
+)
 
 from llm_recommender import (
     save_weekly_snapshot,
@@ -555,54 +560,66 @@ def generate_store_report(store_name: str, cache: dict, cache_con: duckdb.DuckDB
 # =============================================================================
 
 if __name__ == "__main__":
-    # ── Resolve dates ─────────────────────────────────────────────────────────
-    week_start, week_end = report_cache.resolve_weekly_dates()
-    week_start_str_key   = week_start.isoformat()
+    
+    with task_timer("weekly_reports"):
+        # ── Resolve dates ─────────────────────────────────────────────────────────
+        week_start, week_end = report_cache.resolve_weekly_dates()
+        week_start_str_key   = week_start.isoformat()
 
-    # ── Load cache (5 Parquet reads — replaces 700 SQL queries) ─── [FIX 6] ──
-    print(f"\nLoading weekly cache for {week_start_str_key}...")
-    try:
-        cache = report_cache.load_weekly_cache(week_start_str_key)
-        cache["meta"] = {"week_start": week_start, "week_end": week_end}
-        print("✓ Cache loaded from Azure Blob")
-    except Exception as e:
-        print(f"⚠ Cache unavailable ({e}) — run report_cache.py first.")
-        raise SystemExit(1)
-
-    # ── Build ONE shared DuckDB connection for all store queries  [FIX 8] ────
-    cache_con = _make_cache_con(cache)
-
-    store_names = cache_con.execute(
-        "SELECT storeName FROM store_summary ORDER BY storeName"
-    ).fetchall()
-    store_names = [r[0] for r in store_names if r[0] not in EXCLUDED_STORES]
-
-    print(f"Found {len(store_names)} stores.\nGenerating reports...\n")
-
-    # ── Generate all reports — collect URLs ───────────────────────────────────
-    pdf_links: dict[str, str] = {}
-
-    for store in store_names:
+        # ── Load cache (5 Parquet reads — replaces 700 SQL queries) ─── [FIX 6] ──
+        print(f"\nLoading weekly cache for {week_start_str_key}...")
         try:
-            url = generate_store_report(store, cache, cache_con)
-            if url:
-                pdf_links[store] = url
-            time.sleep(1)
+            cache = report_cache.load_weekly_cache(week_start_str_key)
+            cache["meta"] = {"week_start": week_start, "week_end": week_end}
+            print("✓ Cache loaded from Azure Blob")
         except Exception as e:
-            print(f"  ✗ Error generating report for {store}: {e}")
+            print(f"⚠ Cache unavailable ({e}) — run report_cache.py first.")
+            raise SystemExit(1)
 
-    cache_con.close()
+        # ── Build ONE shared DuckDB connection for all store queries  [FIX 8] ────
+        cache_con = _make_cache_con(cache)
 
-    # ── [FIX 4] Write partner.csv ONCE after all stores are done ─────────────
-    if pdf_links and os.path.exists(PARTNER_FILE):
-        partner_df = pd.read_csv(PARTNER_FILE)
-        if "pdf_link" not in partner_df.columns:
-            partner_df["pdf_link"] = ""
-        for store_name, url in pdf_links.items():
-            partner_df.loc[partner_df["storeName"] == store_name, "pdf_link"] = url
-        partner_df.to_csv(PARTNER_FILE, index=False)
-        print(f"\n✓ partner.csv updated with {len(pdf_links)} links")
-    elif not os.path.exists(PARTNER_FILE):
-        print(f"⚠ partner.csv not found at {PARTNER_FILE} — links not saved.")
+        store_names = cache_con.execute(
+            "SELECT storeName FROM store_summary ORDER BY storeName"
+        ).fetchall()
+        store_names = [r[0] for r in store_names if r[0] not in EXCLUDED_STORES]
 
-    print(f"\n✓ All store reports uploaded to Azure Blob")
+        print(f"Found {len(store_names)} stores.\nGenerating reports...\n")
+
+        # ── Generate all reports — collect URLs ───────────────────────────────────
+        pdf_links: dict[str, str] = {}
+
+        success_count = 0
+        failed_count  = 0
+
+        for store in store_names:
+            try:
+                with report_timer(store, "weekly"):  
+                    url = generate_store_report(store, cache, cache_con)
+                if url:
+                    pdf_links[store] = url
+                record_report(store, "weekly", True)       
+                success_count += 1
+                time.sleep(1)
+            except Exception as e:
+                record_report(store, "weekly", False)            
+                record_task_error("weekly_reports", e)         
+                failed_count += 1
+                print(f"  ✗ Error generating report for {store}: {e}")
+
+        cache_con.close()
+        record_stores_processed("weekly", success_count, failed_count)
+        
+        # ── [FIX 4] Write partner.csv ONCE after all stores are done ─────────────
+        if pdf_links and os.path.exists(PARTNER_FILE):
+            partner_df = pd.read_csv(PARTNER_FILE)
+            if "pdf_link" not in partner_df.columns:
+                partner_df["pdf_link"] = ""
+            for store_name, url in pdf_links.items():
+                partner_df.loc[partner_df["storeName"] == store_name, "pdf_link"] = url
+            partner_df.to_csv(PARTNER_FILE, index=False)
+            print(f"\n✓ partner.csv updated with {len(pdf_links)} links")
+        elif not os.path.exists(PARTNER_FILE):
+            print(f"⚠ partner.csv not found at {PARTNER_FILE} — links not saved.")
+
+        print(f"\n✓ All store reports uploaded to Azure Blob")

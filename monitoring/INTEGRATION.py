@@ -1,12 +1,32 @@
 """
-monitoring/INTEGRATION.py
+monitoring/INTEGRATION.py  (v2 — corrected to match DAG)
 ─────────────────────────────────────────────────────────────────────────────
 Exact code to add to each script. Only additions — nothing existing changes.
+
+DAG task_id → script → task_timer label
+─────────────────────────────────────────────────────────────────────────────
+  etl_pip              etl/core_pipeline.py       task_timer("etl_pip")
+  product_update       etl/product_update.py      task_timer("product_update")
+  run_analysis         analysis.py *              task_timer("run_analysis")
+  rtv_report           rtv_report.py              task_timer("rtv_report")
+  stock                stock.py                   task_timer("stock")
+  weekly_reports       weekly_azure_llm.py        task_timer("weekly_reports")
+  weekly_mail          mail.py                    task_timer("weekly_mail")
+  monthly_reports      monthly_azure_llm.py       task_timer("monthly_reports")
+  monthly_mail         monthly_mail.py            task_timer("monthly_mail")
+  wa_stock_alert       wa_stock_alert.py          task_timer("wa_stock_alert")
+  wa_sender            wa_sender.py               task_timer("wa_sender")
+
+  * run_analysis DAG task runs run_analysis.sh which calls analysis.py.
+    Add task_timer("run_analysis") inside analysis.py __main__.
+
+  report_cache / report_cache_monthly — pure cache scripts, no metrics needed.
+  llm_recommender.py — library, no own task_timer (inherits context from caller).
 ─────────────────────────────────────────────────────────────────────────────
 """
 
 # ══════════════════════════════════════════════════════════════════════════════
-# 1. etl_pip.py  and  product_update.py
+# 1. etl/core_pipeline.py   (DAG task: etl_pip)
 # ══════════════════════════════════════════════════════════════════════════════
 """
 Add at top:
@@ -14,19 +34,39 @@ Add at top:
 
 Wrap __main__:
     if __name__ == "__main__":
-        with task_timer("etl"):         # or "product_update"
+        with task_timer("etl_pip"):
             main()
 
-Inside main(), after each DB insert/load, add:
+Inside main(), after each DB insert/load:
     record_etl_rows("billing_data", len(df))
 
-On API call failures, add:
+On API call failures:
     record_etl_api_error("/api/endpoint-name")
 """
 
 
 # ══════════════════════════════════════════════════════════════════════════════
-# 2. analysis.py  (daily_analysis task)
+# 2. etl/product_update.py   (DAG task: product_update)
+# ══════════════════════════════════════════════════════════════════════════════
+"""
+Add at top:
+    from monitoring.metrics import task_timer, record_task_error, record_etl_rows, record_etl_api_error
+
+Wrap __main__:
+    if __name__ == "__main__":
+        with task_timer("product_update"):
+            main()
+
+Inside main(), after each DB insert/load:
+    record_etl_rows("product_data", len(df))
+
+On API call failures:
+    record_etl_api_error("/api/endpoint-name")
+"""
+
+
+# ══════════════════════════════════════════════════════════════════════════════
+# 3. analysis.py   (DAG task: run_analysis — called via run_analysis.sh)
 # ══════════════════════════════════════════════════════════════════════════════
 """
 Add at top:
@@ -35,10 +75,10 @@ Add at top:
 
 Wrap __main__:
     if __name__ == "__main__":
-        with task_timer("analysis"):
+        with task_timer("run_analysis"):
             main()
 
-Wrap safe_read_sql (or equivalent) to add timing:
+Wrap safe_read_sql (or equivalent DB helper) to add timing:
     def safe_read_sql(query, params=None, retries=5, delay=3):
         label = str(query)[:50].replace("\\n", " ").strip()
         for attempt in range(retries):
@@ -46,121 +86,37 @@ Wrap safe_read_sql (or equivalent) to add timing:
                 t0 = _time.time()
                 with engine.connect() as conn:
                     result = pd.read_sql(query, conn, params=params)
-                record_db_duration("analysis", label, _time.time() - t0)  # ← ADD
+                record_db_duration("run_analysis", label, _time.time() - t0)  # ← ADD
                 return result
             except OperationalError as e:
-                record_db_error("analysis", label)                         # ← ADD
+                record_db_error("run_analysis", label)                         # ← ADD
                 if attempt > 0:
-                    record_db_retry("analysis")                            # ← ADD
+                    record_db_retry("run_analysis")                            # ← ADD
                 ... (rest unchanged)
 """
 
 
 # ══════════════════════════════════════════════════════════════════════════════
-# 3. weekly_llm.py  (weekly_reports task)
+# 4. rtv_report.py   (DAG task: rtv_report)
 # ══════════════════════════════════════════════════════════════════════════════
 """
 Add at top:
-    import time as _time
-    from monitoring.metrics import (
-        task_timer, record_task_error,
-        report_timer, record_report, record_stores_processed,
-        record_db_duration, record_db_error, record_db_retry,
-        record_stock_counts,
-    )
+    from monitoring.metrics import task_timer, record_rtv, record_task_error
 
-Wrap safe_read_sql — same as analysis.py above, use script="weekly".
-
-Wrap generate_store_report call in __main__:
-    if __name__ == "__main__":
-        store_names = get_unique_stores()
-        success_count = 0
-        failed_count  = 0
-
-        with task_timer("weekly"):
-            for store in store_names:
-                try:
-                    with report_timer(store, "weekly"):       # ← ADD
-                        generate_store_report(store)
-                    record_report(store, "weekly", True)      # ← ADD
-                    success_count += 1
-                    time.sleep(1)
-                except Exception as e:
-                    record_report(store, "weekly", False)     # ← ADD
-                    record_task_error("weekly", e)            # ← ADD
-                    failed_count += 1
-                    print(f"❌ Error for {store}: {e}")
-
-        record_stores_processed("weekly", success_count, failed_count)  # ← ADD
-
-Inside generate_store_report(), after load_stock_lookups():
-    stock_df = _load_stock_csv_raw(store_name)  # load raw df once
-    if not stock_df.empty:
-        neg = int((stock_df["quantity"] < 0).sum())
-        low = int(((stock_df["quantity"] > 0) & (stock_df["quantity"] <= LOW_STOCK_THRESHOLD)).sum())
-        record_stock_counts(store_name, neg, low)              # ← ADD
-"""
-
-
-# ══════════════════════════════════════════════════════════════════════════════
-# 4. monthly_llm.py  (monthly_reports task)
-# ══════════════════════════════════════════════════════════════════════════════
-"""
-Identical to weekly_llm.py above — use report_type="monthly" and script="monthly".
-
-    with task_timer("monthly"):
-        for store in store_names:
-            try:
-                with report_timer(store, "monthly"):
-                    generate_store_report(store)
-                record_report(store, "monthly", True)
-                ...
-            except Exception as e:
-                record_report(store, "monthly", False)
-                record_task_error("monthly", e)
-
-    record_stores_processed("monthly", success_count, failed_count)
-"""
-
-
-# ══════════════════════════════════════════════════════════════════════════════
-# 5. mail.py  (weekly_mail task)
-# ══════════════════════════════════════════════════════════════════════════════
-"""
-Add at top:
-    from monitoring.metrics import task_timer, mail_timer, record_mail_sent, record_task_error
+After saving each store's RTV CSV, load it and record:
+    df = pd.read_csv(filename)
+    df["totalAmount"] = pd.to_numeric(df["totalAmount"], errors="coerce").fillna(0)
+    record_rtv(store_name, lines=len(df), value_inr=float(df["totalAmount"].sum()))  # ← ADD
 
 Wrap __main__:
     if __name__ == "__main__":
-        with task_timer("mail"):
-            with mail_timer("weekly"):
-                main()
-
-Inside the per-store/per-recipient send loop, after each send attempt:
-    try:
-        send_email(...)
-        record_mail_sent("weekly", True)   # ← ADD
-    except Exception as e:
-        record_mail_sent("weekly", False)  # ← ADD
-"""
-
-
-# ══════════════════════════════════════════════════════════════════════════════
-# 6. monthly_mail.py  (monthly_mail task)
-# ══════════════════════════════════════════════════════════════════════════════
-"""
-Same as mail.py — use report_type="monthly".
-
-    with task_timer("monthly_mail"):
-        with mail_timer("monthly"):
+        with task_timer("rtv_report"):
             main()
-
-    record_mail_sent("monthly", True/False)
 """
 
 
 # ══════════════════════════════════════════════════════════════════════════════
-# 7. stock.py
+# 5. stock.py   (DAG task: stock)
 # ══════════════════════════════════════════════════════════════════════════════
 """
 Add at top:
@@ -181,48 +137,129 @@ Wrap __main__:
 
 
 # ══════════════════════════════════════════════════════════════════════════════
-# 8. rtv_report.py
+# 6. weekly_azure_llm.py   (DAG task: weekly_reports)
 # ══════════════════════════════════════════════════════════════════════════════
 """
 Add at top:
-    from monitoring.metrics import task_timer, record_rtv, record_task_error
+    import time as _time
+    from monitoring.metrics import (
+        task_timer, record_task_error,
+        report_timer, record_report, record_stores_processed,
+        record_db_duration, record_db_error, record_db_retry,
+        record_stock_counts,
+    )
 
-After saving each store's RTV CSV, load it and record:
-    df = pd.read_csv(filename)
-    df["totalAmount"] = pd.to_numeric(df["totalAmount"], errors="coerce").fillna(0)
-    record_rtv(store_name, lines=len(df), value_inr=float(df["totalAmount"].sum()))  # ← ADD
+Wrap safe_read_sql the same way as analysis.py above, using script="weekly_reports".
+
+Wrap __main__ store loop:
+    if __name__ == "__main__":
+        store_names = get_unique_stores()
+        success_count = 0
+        failed_count  = 0
+
+        with task_timer("weekly_reports"):
+            for store in store_names:
+                try:
+                    with report_timer(store, "weekly"):       # ← ADD
+                        generate_store_report(store)
+                    record_report(store, "weekly", True)      # ← ADD
+                    success_count += 1
+                    time.sleep(1)
+                except Exception as e:
+                    record_report(store, "weekly", False)     # ← ADD
+                    record_task_error("weekly_reports", e)    # ← ADD
+                    failed_count += 1
+                    print(f"❌ Error for {store}: {e}")
+
+        # IMPORTANT: call OUTSIDE task_timer block
+        record_stores_processed("weekly", success_count, failed_count)  # ← ADD
+
+Inside generate_store_report(), after load_stock_lookups():
+    stock_df = _load_stock_csv_raw(store_name)
+    if not stock_df.empty:
+        neg = int((stock_df["quantity"] < 0).sum())
+        low = int(((stock_df["quantity"] > 0) & (stock_df["quantity"] <= LOW_STOCK_THRESHOLD)).sum())
+        record_stock_counts(store_name, neg, low)              # ← ADD
+"""
+
+
+# ══════════════════════════════════════════════════════════════════════════════
+# 7. mail.py   (DAG task: weekly_mail)
+# ══════════════════════════════════════════════════════════════════════════════
+"""
+Add at top:
+    from monitoring.metrics import task_timer, mail_timer, record_mail_sent, record_task_error
 
 Wrap __main__:
     if __name__ == "__main__":
-        with task_timer("rtv"):
-            main()
-"""
+        with task_timer("weekly_mail"):
+            with mail_timer("weekly"):
+                main()
 
-
-# ══════════════════════════════════════════════════════════════════════════════
-# 9. wa_sender.py  (daily WhatsApp — currently commented out in DAG)
-# ══════════════════════════════════════════════════════════════════════════════
-"""
-Add at top:
-    from monitoring.metrics import task_timer, record_wa_sent, record_wa_error, record_task_error
-
-Around each send attempt:
+Inside the per-store/per-recipient send loop:
     try:
-        send_message(...)
-        record_wa_sent("daily_report", True)   # ← ADD
+        send_email(...)
+        record_mail_sent("weekly", True)   # ← ADD
     except Exception as e:
-        record_wa_sent("daily_report", False)  # ← ADD
-        record_wa_error("daily_report")        # ← ADD
-
-Wrap __main__:
-    if __name__ == "__main__":
-        with task_timer("wa_sender"):
-            main()
+        record_mail_sent("weekly", False)  # ← ADD
 """
 
 
 # ══════════════════════════════════════════════════════════════════════════════
-# 10. wa_stock_alert.py
+# 8. monthly_azure_llm.py   (DAG task: monthly_reports)
+# ══════════════════════════════════════════════════════════════════════════════
+"""
+Identical pattern to weekly_azure_llm.py — use report_type="monthly"
+and script="monthly_reports":
+
+    if __name__ == "__main__":
+        store_names = get_unique_stores()
+        success_count = 0
+        failed_count  = 0
+
+        with task_timer("monthly_reports"):
+            for store in store_names:
+                try:
+                    with report_timer(store, "monthly"):
+                        generate_store_report(store)
+                    record_report(store, "monthly", True)
+                    success_count += 1
+                    time.sleep(1)
+                except Exception as e:
+                    record_report(store, "monthly", False)
+                    record_task_error("monthly_reports", e)
+                    failed_count += 1
+                    print(f"❌ Error for {store}: {e}")
+
+        # IMPORTANT: call OUTSIDE task_timer block
+        record_stores_processed("monthly", success_count, failed_count)
+"""
+
+
+# ══════════════════════════════════════════════════════════════════════════════
+# 9. monthly_mail.py   (DAG task: monthly_mail)
+# ══════════════════════════════════════════════════════════════════════════════
+"""
+Add at top:
+    from monitoring.metrics import task_timer, mail_timer, record_mail_sent, record_task_error
+
+Wrap __main__:
+    if __name__ == "__main__":
+        with task_timer("monthly_mail"):
+            with mail_timer("monthly"):
+                main()
+
+Inside the per-store/per-recipient send loop:
+    try:
+        send_email(...)
+        record_mail_sent("monthly", True)   # ← ADD
+    except Exception as e:
+        record_mail_sent("monthly", False)  # ← ADD
+"""
+
+
+# ══════════════════════════════════════════════════════════════════════════════
+# 10. wa_stock_alert.py   (DAG task: wa_stock_alert — active)
 # ══════════════════════════════════════════════════════════════════════════════
 """
 Add at top:
@@ -245,12 +282,38 @@ Wrap __main__:
 
 
 # ══════════════════════════════════════════════════════════════════════════════
-# 11. llm_recommender.py  (_get_recommendation function)
+# 11. wa_sender.py   (DAG task: currently commented out)
+# ══════════════════════════════════════════════════════════════════════════════
+"""
+Add at top:
+    from monitoring.metrics import task_timer, record_wa_sent, record_wa_error, record_task_error
+
+Around each send attempt:
+    try:
+        send_message(...)
+        record_wa_sent("daily_report", True)   # ← ADD
+    except Exception as e:
+        record_wa_sent("daily_report", False)  # ← ADD
+        record_wa_error("daily_report")        # ← ADD
+
+Wrap __main__:
+    if __name__ == "__main__":
+        with task_timer("wa_sender"):
+            main()
+"""
+
+
+# ══════════════════════════════════════════════════════════════════════════════
+# 12. llm_recommender.py   (library — no DAG task of its own)
 # ══════════════════════════════════════════════════════════════════════════════
 """
 Add at top:
     import time as _time
     from monitoring.metrics import record_llm_call
+
+NO task_timer here — this is a library called from within weekly_azure_llm.py
+and monthly_azure_llm.py, which already set the script context. Adding another
+task_timer would overwrite _current_script and push metrics to the wrong slot.
 
 In _get_recommendation(), wrap each LLM call with timing:
 
@@ -266,11 +329,10 @@ In _get_recommendation(), wrap each LLM call with timing:
             except Exception as e:
                 err = str(e).lower()
                 if "rate_limit" in err or "429" in err or "quota" in err:
-                    record_llm_call("groq", False, 0,
-                                    rate_limited=True)                  # ← ADD
+                    record_llm_call("groq", False, 0, rate_limited=True)  # ← ADD
                     ...
                 else:
-                    record_llm_call("groq", False, 0)                   # ← ADD
+                    record_llm_call("groq", False, 0)                     # ← ADD
                     ...
                 break
 
@@ -279,9 +341,9 @@ In _get_recommendation(), wrap each LLM call with timing:
             text = _call_ollama(prompt)
             if text:
                 record_llm_call("ollama", True, _time.time() - t0,
-                                is_fallback=True)                       # ← ADD
+                                is_fallback=True)                         # ← ADD
                 return text, True
         except Exception as e:
-            record_llm_call("ollama", False, 0, is_fallback=True)       # ← ADD
+            record_llm_call("ollama", False, 0, is_fallback=True)         # ← ADD
             ...
 """

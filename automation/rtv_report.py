@@ -5,6 +5,9 @@ import os
 from datetime import datetime, timedelta
 import shutil
 import argparse
+import sys
+sys.path.insert(0, "/base/dir")
+from monitoring.metrics import task_timer, record_rtv, record_task_error
 
 LOGIN_URL = "https://api.example.in/login"
 RTV_URL   = "https://api.example.in/rtvstore-stocks/RTVreport"
@@ -134,8 +137,17 @@ def main():
         store_name = str(row["storeName"]).replace("/", "_")
 
         try:
-            fetch_rtv_report(token, store_id, store_name, fromDate, toDate)
+            out_path = fetch_rtv_report(token, store_id, store_name, fromDate, toDate)
+            # Record RTV metrics from saved CSV
+            try:
+                import pandas as _pd
+                _df = _pd.read_csv(out_path)
+                _df["totalAmount"] = _pd.to_numeric(_df.get("totalAmount", 0), errors="coerce").fillna(0)
+                record_rtv(store_name, lines=len(_df), value_inr=float(_df["totalAmount"].sum()))
+            except Exception:
+                record_rtv(store_name, lines=0, value_inr=0.0)    # ← ADD
         except Exception as e:
+            record_task_error("rtv_report", e)                     # ← ADD
             print(f"❌ {store_name} failed: {e}")
             failed.append(store_name)
 
@@ -146,4 +158,5 @@ def main():
 
 
 if __name__ == "__main__":
-    main()
+    with task_timer("rtv_report"):
+        main()

@@ -5,6 +5,9 @@ import os
 import shutil
 import argparse
 from datetime import datetime
+import sys
+sys.path.insert(0, "/base/dir")
+from monitoring.metrics import task_timer, record_stock_fetch, record_task_error
 
 LOGIN_URL = "https://api.example.in/login"
 STOCK_URL = "https://api.example.in/store-stocks/report/storeStocksCSV"
@@ -128,7 +131,10 @@ def main():
 
         try:
             fetch_stock_report(token, store_id, store_name, run_date)
+            record_stock_fetch(store_name, True)  
         except Exception as e:
+            record_stock_fetch(store_name, False)   
+            record_task_error("stock", e)          
             print(f"❌ {store_name} failed: {e}")
             failed.append(store_name)
 
@@ -139,4 +145,5 @@ def main():
 
 
 if __name__ == "__main__":
-    main()
+    with task_timer("stock"):
+        main()

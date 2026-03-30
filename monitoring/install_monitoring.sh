@@ -1,7 +1,16 @@
 #!/bin/bash
-# install_monitoring.sh
+# install_monitoring.sh  (v2 — fixed)
 # Installs Prometheus, Pushgateway, Node Exporter, Grafana on bare Azure VM.
-# Prometheus TSDB → /mnt/prometheus_data  (24G free, keeps root partition safe)
+# Prometheus TSDB → /mnt/prometheus_data  (keeps root partition safe)
+#
+# FIXES vs v1:
+#   • Grafana: replaced deprecated apt-key with signed-by keyring method.
+#     apt-key was fully removed in Ubuntu 22.04+. The old method causes the
+#     Grafana package to be either untrusted or silently missing — this is
+#     why only Node Exporter metrics showed up (Node Exporter doesn't need apt).
+#   • pip: --break-system-packages added for Python 3.11+ (PEP 668).
+#   • Stale grafana.list.save cleanup added to prevent duplicate repo errors.
+#
 # Run: chmod +x install_monitoring.sh && ./install_monitoring.sh
 
 set -e
@@ -149,9 +158,25 @@ echo "   ✅ Node Exporter :9100"
 # ── 4. Grafana ────────────────────────────────────────────────────────────────
 echo ""
 echo "▶ [4/5] Grafana..."
-sudo apt-get install -y apt-transport-https software-properties-common wget 2>/dev/null
-wget -q -O - https://packages.grafana.com/gpg.key | sudo apt-key add -
-echo "deb https://packages.grafana.com/oss/deb stable main" | sudo tee /etc/apt/sources.list.d/grafana.list
+
+# FIX: apt-key is removed in Ubuntu 22.04+. Use the modern signed-by keyring.
+# The old `apt-key add` method causes Grafana to be silently absent/untrusted
+# from the package list — Grafana never installs, so the dashboard has no
+# server to connect to and shows No Data for all pipeline metrics.
+sudo apt-get install -y apt-transport-https software-properties-common wget curl 2>/dev/null
+
+sudo mkdir -p /etc/apt/keyrings
+wget -q -O - https://packages.grafana.com/gpg.key \
+    | gpg --dearmor \
+    | sudo tee /etc/apt/keyrings/grafana.gpg > /dev/null
+
+# Remove any stale list left by a previous failed install attempt
+sudo rm -f /etc/apt/sources.list.d/grafana.list \
+           /etc/apt/sources.list.d/grafana.list.save
+
+echo "deb [signed-by=/etc/apt/keyrings/grafana.gpg] https://packages.grafana.com/oss/deb stable main" \
+    | sudo tee /etc/apt/sources.list.d/grafana.list
+
 sudo apt-get update -q
 sudo apt-get install -y grafana
 
@@ -202,9 +227,11 @@ echo "   ✅ Grafana :3000  (admin / admin)"
 echo ""
 echo "▶ [5/5] Python metrics module..."
 
+# FIX: --break-system-packages required for Python 3.11+ (PEP 668)
 pip install prometheus-client --break-system-packages 2>/dev/null || \
+    pip3 install prometheus-client --break-system-packages 2>/dev/null || \
     pip3 install prometheus-client 2>/dev/null || \
-    echo "   ⚠️  Run manually: pip install prometheus-client"
+    echo "   ⚠️  Run manually: pip install prometheus-client --break-system-packages"
 
 mkdir -p "$PROJECT_DIR/monitoring"
 touch "$PROJECT_DIR/monitoring/__init__.py"

@@ -34,13 +34,13 @@ from io import BytesIO
 from datetime import datetime, timezone, timedelta
 
 import duckdb
-import pandas as pd                  # kept for: partner_month.csv only
+import pandas as pd
 import pdfkit
 import plotly.graph_objects as go
 import base64
 from sqlalchemy import create_engine
 from sqlalchemy.exc import OperationalError
-from sqlalchemy.pool import NullPool                             # [FIX 3]
+from sqlalchemy.pool import NullPool  
 from azure.storage.blob import BlobServiceClient, ContentSettings, generate_blob_sas, BlobSasPermissions
 from azure.core.exceptions import ResourceExistsError
 import report_cache_monthly
@@ -52,6 +52,12 @@ from llm_recommender import (
     save_monthly_snapshot,
 )
 
+import sys
+sys.path.insert(0, "/base/dir")
+from monitoring.metrics import (
+    task_timer, record_task_error,
+    report_timer, record_report, record_stores_processed,
+)
 
 BASE_DIR = "/base/dir"
 
@@ -436,54 +442,66 @@ def generate_store_report(store_name: str, cache: dict, cache_con: duckdb.DuckDB
 # =============================================================================
 
 if __name__ == "__main__":
-    # ── Resolve dates ─────────────────────────────────────────────────────────
-    month_start, month_end = report_cache_monthly.resolve_monthly_dates()
-    month_start_str_key    = month_start.isoformat()
+    
+    with task_timer("monthly_reports"): 
+        # ── Resolve dates ─────────────────────────────────────────────────────────
+        month_start, month_end = report_cache_monthly.resolve_monthly_dates()
+        month_start_str_key    = month_start.isoformat()
 
-    # ── Load cache (5 Parquet reads — replaces hundreds of SQL queries) ───────
-    print(f"\nLoading monthly cache for {month_start_str_key}...")
-    try:
-        cache = report_cache_monthly.load_monthly_cache(month_start_str_key)
-        cache["meta"] = {"month_start": month_start, "month_end": month_end}
-        print("✓ Cache loaded from Azure Blob")
-    except Exception as e:
-        print(f"⚠ Cache unavailable ({e}) — run report_cache_monthly.py first.")
-        raise SystemExit(1)
-
-    # ── Build ONE shared DuckDB connection for all store queries  [FIX 11] ───
-    cache_con = _make_cache_con(cache)
-
-    store_names = cache_con.execute(
-        "SELECT storeName FROM store_summary ORDER BY storeName"
-    ).fetchall()
-    store_names = [r[0] for r in store_names if r[0] not in EXCLUDED_STORES]
-
-    print(f"Found {len(store_names)} stores.\nGenerating reports...\n")
-
-    # ── Generate all reports — collect URLs ───────────────────────────────────
-    pdf_links: dict[str, str] = {}
-
-    for store in store_names:
+        # ── Load cache (5 Parquet reads — replaces hundreds of SQL queries) ───────
+        print(f"\nLoading monthly cache for {month_start_str_key}...")
         try:
-            url = generate_store_report(store, cache, cache_con)
-            if url:
-                pdf_links[store] = url
-            time.sleep(1)
+            cache = report_cache_monthly.load_monthly_cache(month_start_str_key)
+            cache["meta"] = {"month_start": month_start, "month_end": month_end}
+            print("✓ Cache loaded from Azure Blob")
         except Exception as e:
-            print(f"  ❌ Error generating report for {store}: {e}")
+            print(f"⚠ Cache unavailable ({e}) — run report_cache_monthly.py first.")
+            raise SystemExit(1)
 
-    cache_con.close()
+        # ── Build ONE shared DuckDB connection for all store queries  [FIX 11] ───
+        cache_con = _make_cache_con(cache)
 
-    # ── [FIX 8] Write partner_month.csv ONCE after all stores are done ───────
-    if pdf_links and os.path.exists(PARTNER_FILE):
-        partner_df = pd.read_csv(PARTNER_FILE)
-        if "monthly_pdf_link" not in partner_df.columns:
-            partner_df["monthly_pdf_link"] = ""
-        for store_name, url in pdf_links.items():
-            partner_df.loc[partner_df["storeName"] == store_name, "monthly_pdf_link"] = url
-        partner_df.to_csv(PARTNER_FILE, index=False)
-        print(f"\n✓ partner_month.csv updated with {len(pdf_links)} monthly links")
-    elif not os.path.exists(PARTNER_FILE):
-        print(f"⚠ partner_month.csv not found at {PARTNER_FILE} — links not saved.")
+        store_names = cache_con.execute(
+            "SELECT storeName FROM store_summary ORDER BY storeName"
+        ).fetchall()
+        store_names = [r[0] for r in store_names if r[0] not in EXCLUDED_STORES]
 
-    print(f"\n✅ All monthly store reports uploaded to Azure Blob")
+        print(f"Found {len(store_names)} stores.\nGenerating reports...\n")
+
+        # ── Generate all reports — collect URLs ───────────────────────────────────
+        pdf_links: dict[str, str] = {}
+
+        success_count = 0
+        failed_count  = 0
+
+        for store in store_names:
+            try:
+                with report_timer(store, "monthly"):    
+                    url = generate_store_report(store, cache, cache_con)
+                if url:
+                    pdf_links[store] = url
+                record_report(store, "monthly", True)     
+                success_count += 1
+                time.sleep(1)
+            except Exception as e:
+                record_report(store, "monthly", False)    
+                record_task_error("monthly_reports", e)   
+                failed_count += 1
+                print(f"  ❌ Error generating report for {store}: {e}")
+
+        cache_con.close()
+        record_stores_processed("monthly", success_count, failed_count)
+        
+        # ── [FIX 8] Write partner_month.csv ONCE after all stores are done ───────
+        if pdf_links and os.path.exists(PARTNER_FILE):
+            partner_df = pd.read_csv(PARTNER_FILE)
+            if "monthly_pdf_link" not in partner_df.columns:
+                partner_df["monthly_pdf_link"] = ""
+            for store_name, url in pdf_links.items():
+                partner_df.loc[partner_df["storeName"] == store_name, "monthly_pdf_link"] = url
+            partner_df.to_csv(PARTNER_FILE, index=False)
+            print(f"\n✓ partner_month.csv updated with {len(pdf_links)} monthly links")
+        elif not os.path.exists(PARTNER_FILE):
+            print(f"⚠ partner_month.csv not found at {PARTNER_FILE} — links not saved.")
+
+        print(f"\n✅ All monthly store reports uploaded to Azure Blob")

@@ -4,13 +4,16 @@ import pandas as pd
 from email.mime.multipart import MIMEMultipart
 from email.mime.text import MIMEText
 from datetime import datetime
+import sys
+sys.path.insert(0, "/base/dir")
+from monitoring.metrics import task_timer, mail_timer, record_mail_sent
 
 SMTP_SERVER = "smtp.zoho.in"
 SMTP_PORT = 465
-SENDER_EMAIL = "from@mail.com"
-SENDER_PASSWORD = "app password"
-CC_EMAILS = ['mail1','mail2']
-BCC_EMAILS = ["bccmail@.com"]
+SENDER_EMAIL = "sender@mail.com"
+SENDER_PASSWORD = "app_pwd"
+CC_EMAILS = ['firstmail', 'secondmail']
+BCC_EMAILS = ["bccmail"]
 
 PARTNER_FILE = "/base/dir/partner.csv"
 
@@ -102,7 +105,14 @@ def send_all_reports():
 
         subject = f"Weekly Store Report - {store_name}"
         body = create_email_body(store_name, pdf_link)
-        send_email(email, subject, body)
+        try:
+            send_email(email, subject, body)
+            record_mail_sent("weekly", True)                  
+        except Exception as e:
+            record_mail_sent("weekly", False)         
+            print(f"❌ Failed to record mail for {store_name}: {e}")
 
 if __name__ == "__main__":
-    send_all_reports()
+    with task_timer("weekly_mail"):
+        with mail_timer("weekly"):
+            send_all_reports()
