@@ -9,7 +9,7 @@ default_args = {
     "owner": "Somin",
     "retries": 2,
     "retry_delay": timedelta(minutes=7),
-    "email": ["mail@gmail.com"],
+    "email": ["sominzex21@gmail.com"],
     "email_on_failure": True,
     "email_on_retry": False,
 }
@@ -17,12 +17,14 @@ default_args = {
 # ──────────────────────────── BRANCH LOGIC ────────────────────────────
 
 def check_weekly(**context):
-    if context["logical_date"].weekday() == 0:
+    # data_interval_end is the actual wall-clock date the schedule fired for
+    execution_day = context["data_interval_end"].weekday()
+    if execution_day == 0:
         return ["rtv_report", "stock"]
     return "skip_weekly"
 
 def check_monthly(**context):
-    if context["logical_date"].day == 1:
+    if context["data_interval_end"].day == 1:
         return "report_cache_monthly"
     return "skip_monthly"
 
