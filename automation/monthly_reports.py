@@ -34,13 +34,13 @@ from io import BytesIO
 from datetime import datetime, timezone, timedelta
 
 import duckdb
-import pandas as pd
+import pandas as pd                  # kept for: partner_month.csv only
 import pdfkit
 import plotly.graph_objects as go
 import base64
 from sqlalchemy import create_engine
 from sqlalchemy.exc import OperationalError
-from sqlalchemy.pool import NullPool  
+from sqlalchemy.pool import NullPool                             # [FIX 3]
 from azure.storage.blob import BlobServiceClient, ContentSettings, generate_blob_sas, BlobSasPermissions
 from azure.core.exceptions import ResourceExistsError
 import report_cache_monthly

@@ -1,3 +1,4 @@
+import sys; sys.path.insert(0, "/base/dir")
 import os
 import json
 import time
@@ -27,29 +28,64 @@ def _get_client() -> Groq:
 
 
 #wrapper
-_REC_STYLE = """
-<div style="
-    background: #f0f7ff;
-    border-left: 5px solid #0078d7;
-    border-radius: 6px;
-    padding: 14px 18px;
-    margin: 10px 0 24px 0;
-    font-family: 'Segoe UI', sans-serif;
-">
-    <div style="font-size:15px; font-weight:bold; color:#0078d7; margin-bottom:8px;">
-        {header}
-    </div>
-    <div style="font-size:14px; color:#333; line-height:1.7; white-space:pre-line;">
-{body}
-    </div>
+_UNAVAILABLE = """
+<div style="background:#f0f7ff;border-left:5px solid #0078d7;border-radius:6px;
+            padding:14px 18px;margin:10px 0 24px 0;font-family:'Segoe UI',sans-serif;">
+  <div style="font-size:15px;font-weight:bold;color:#0078d7;margin-bottom:8px;">
+    New Shop AI Recommendation \u2014 Unavailable
+  </div>
+  <div style="font-size:14px;color:#888;">
+    Could not generate recommendation. Check GROQ_API_KEY in .env and verify the GROQ_MODEL is correct.
+  </div>
 </div>
 """
 
-_UNAVAILABLE = _REC_STYLE.format(
-    header="New Shop AI Recommendation — Unavailable",
-    body="Could not generate recommendation. "
-         "Check GROQ_API_KEY in .env and that Ollama is running (ollama serve)."
-)
+_SECTION_COLORS = ["#0078d7", "#e67e22", "#27ae60", "#8e44ad", "#c0392b"]
+
+_SECTION_ICONS = {
+    "health":    "&#127973;",
+    "revenue":   "&#128200;",
+    "peak":      "&#128293;",
+    "inventory": "&#128230;",
+    "margin":    "&#128185;",
+}
+
+def _section_icon(title):
+    t = title.lower()
+    for key, icon in _SECTION_ICONS.items():
+        if key in t:
+            return icon
+    return "&#128204;"
+
+
+def _md_inline(text):
+    import re
+    text = re.sub(r"\*\*(.+?)\*\*", r"<strong>\1</strong>", text)
+    text = re.sub(r"\*(.+?)\*",     r"<em>\1</em>",         text)
+    return text
+
+
+def _parse_sections(text):
+    import re
+    text = re.sub(r"\*\*(\d+\.\s)", r"\1", text)
+    text = re.sub(r"(\d+\.\s[^\n]*)\*\*", r"\1", text)
+    section_re = re.compile(r"^(\d+)\.\s+(.+)$", re.MULTILINE)
+    matches = list(section_re.finditer(text))
+    if not matches:
+        return [("Recommendation", [text.strip()])]
+    sections = []
+    for i, m in enumerate(matches):
+        title = m.group(2).strip().rstrip(":")
+        start = m.end()
+        end   = matches[i + 1].start() if i + 1 < len(matches) else len(text)
+        body  = text[start:end].strip()
+        bullets = []
+        for line in re.split(r"\n", body):
+            line = line.strip().lstrip("-\u2022\u2013").strip()
+            if line:
+                bullets.append(line)
+        sections.append((title, bullets))
+    return sections
 
 
 
@@ -67,7 +103,7 @@ def _call_groq(prompt: str) -> str:
         ],
         model=GROQ_MODEL,
         temperature=0.2,
-        max_tokens=500,
+        max_tokens=5000,
     )
     return chat_completion.choices[0].message.content.strip()
 
@@ -101,27 +137,51 @@ def _get_recommendation(prompt: str) -> tuple:
                     time.sleep(30)
                     continue
                 else:
-                    print("Groq rate limit persists — switching to Ollama.")
+                    print(f"Groq rate limit persists after retry — skipping recommendation.")
             else:
-                print(f"Groq failed: {str(e)[:80]} — switching to Ollama.")
+                print(f"Groq failed: {str(e)[:80]} — skipping recommendation.")
             break
-    try:
-        print(f"Calling Ollama ({OLLAMA_MODEL})...")
-        text = _call_ollama(prompt)
-        if text:
-            print(f"Ollama ({OLLAMA_MODEL}) response received.")
-            return text, True
-    except requests.exceptions.ConnectionError:
-        print(f"Ollama not reachable. Run: ollama serve")
-    except Exception as e:
-        print(f"Ollama failed: {str(e)[:80]}")
     return "", False
 
 
 def _wrap_html(text: str, used_fallback: bool = False) -> str:
     if not text:
         return _UNAVAILABLE
-    return _REC_STYLE.format(header="New Shop AI Recommendation", body=text)
+
+    sections = _parse_sections(text)
+    cards_html = []
+
+    for idx, (title, bullets) in enumerate(sections):
+        color = _SECTION_COLORS[idx % len(_SECTION_COLORS)]
+        icon  = _section_icon(title)
+
+        bullet_rows = ""
+        for b in bullets:
+            bullet_rows += (
+                f'<div style="display:flex;gap:8px;margin:5px 0;align-items:flex-start;">'
+                f'<span style="color:{color};margin-top:2px;flex-shrink:0;">&#9656;</span>'
+                f'<span style="color:#333;font-size:13.5px;line-height:1.6;">{_md_inline(b)}</span>'
+                f'</div>'
+            )
+
+        cards_html.append(
+            f'<div style="background:#fff;border-top:3px solid {color};border-radius:8px;'
+            f'padding:12px 16px;margin:0 0 12px 0;box-shadow:0 1px 4px rgba(0,0,0,0.07);">'
+            f'<div style="font-size:13px;font-weight:700;color:{color};'
+            f'text-transform:uppercase;letter-spacing:0.5px;margin-bottom:8px;">'
+            f'{icon}&nbsp;&nbsp;{title}</div>'
+            f'{bullet_rows}'
+            f'</div>'
+        )
+
+    return (
+        '<div style="background:#f4f7fb;border-radius:10px;padding:16px 18px;'
+        'margin:10px 0 24px 0;font-family:\'Segoe UI\',sans-serif;">'
+        '<div style="font-size:14px;font-weight:700;color:#0078d7;'
+        'margin-bottom:12px;letter-spacing:0.3px;">&#129302;&nbsp; New Shop intelligence insights</div>'
+        + "".join(cards_html)
+        + '</div>'
+    )
 
 # ── WEEKLY SNAPSHOT
 
@@ -566,28 +626,81 @@ def brand_recommendation(
         f"\nPREDICTIVE SIGNALS: No prior {period_label} snapshot yet — predictions will appear from next run.\n"
     )
 
-    prompt = f"""Store: "{store_name}" | {report_type} | Total Sales: Rs.{total_sales:,.2f} | Avg margin: {intel['avg_margin_pct']}%
+    prompt = f"""
+        You are a senior retail strategy analyst evaluating BRAND performance across the store.
 
-TOP 10 BRANDS by revenue:
-{json.dumps(intel['top_10_by_revenue'], indent=2)}
+        Focus: supplier performance, revenue concentration, and margin quality.
 
-BOTTOM 5 BRANDS by quantity (store avg: {intel['avg_qty_sold']} units):
-{json.dumps(intel['bottom_5_by_quantity'], indent=2)}
+        Store: "{store_name}" | {report_type}
+        Total Sales: Rs.{total_sales:,.2f}
+        Avg Margin: {intel['avg_margin_pct']}%
 
-LOW MARGIN / HIGH RISK BRANDS:
-{json.dumps(margin_risk_candidates[:5], indent=2)}
+        ================ DATA =================
 
-HIGH MARGIN UNDERUTILISED:
-{json.dumps(gem_candidates[:3], indent=2)}
+        TOP BRANDS:
+        {json.dumps(intel['top_10_by_revenue'][:5], indent=2)}
 
-MIX SHIFT RISK:
-{json.dumps(intel['mix_risk_items'], indent=2)}
+        LOW MOVEMENT BRANDS:
+        {json.dumps(intel['bottom_5_by_quantity'], indent=2)}
 
-CONCENTRATION: {conc}
-ANOMALIES: {json.dumps(intel['anomalies']) if intel['anomalies'] else "None"}
-{trend_section}{pred_section}
+        MARGIN RISK BRANDS:
+        {json.dumps(margin_risk_candidates[:5], indent=2)}
 
-Write 5 actionable bullet points covering: top revenue brands, margin risks, hidden opportunities, slow movers, and trend/predictive signals."""
+        HIGH MARGIN BRANDS (UNDERUTILIZED):
+        {json.dumps(gem_candidates[:3], indent=2)}
+
+        CONCENTRATION:
+        Top 3 brands contribute {intel['top3_revenue_share_pct']}%
+
+        ANOMALIES:
+        {json.dumps(intel['anomalies']) if intel['anomalies'] else "None"}
+
+        TRENDS:
+        {json.dumps(intel['trend_declining'], indent=2) if intel['trend_declining'] else "Stable"}
+
+        MARGIN SHIFTS:
+        {json.dumps(intel['trend_margin_shifts'], indent=2) if intel['trend_margin_shifts'] else "Stable"}
+
+        PREDICTIONS:
+        {json.dumps(pred, indent=2)}
+
+        ================ OUTPUT =================
+
+        Return EXACTLY these 5 sections, each with 3 tight bullet points:
+
+        1. STORE HEALTH SCORE
+        - Score (0–100) with label (Healthy / Moderate / At Risk)
+        - Key drivers of the score: concentration %, avg margin %, number of risk brands
+        - Single biggest threat to store health right now and what to do about it
+
+        2. REVENUE FORECAST
+        - Direction (Growth / Stable / Decline) with estimated % and projected Rs impact on next week
+        - Top 2–3 brands driving that direction with their individual sales change %
+        - Biggest risk to the forecast — which brand could derail it and why
+
+        3. PEAK SALES DRIVER
+        - Top brand by revenue: name, Rs sales, contribution %, WoW change
+        - Second and third strongest brands and their momentum (growing / stable / declining)
+        - Action: how to capitalise — increase shelf space, push promotions, or protect against decline
+
+        4. INVENTORY EFFICIENCY
+        - Stockout risk brands (demand accelerating): name, qty growth %, recommended reorder urgency
+        - Slow-moving / dead brands: name, units sold, Rs tied up — flag for markdown or return
+        - One systemic action: e.g. reorder cycle adjustment, vendor escalation, or dead stock clearance plan
+
+        5. MARGIN INTELLIGENCE
+        - Worst margin brand: name, margin %, Rs sales, financial impact of the loss
+        - Margin erosion alerts: brands where margin dropped >3pp — root cause (supplier cost / pricing gap)
+        - Immediate action per brand: delist / renegotiate / reprice — with specific target margin to aim for
+
+        ================ RULES =================
+
+        - Exactly 3 bullet points per section — no more, no less
+        - Every bullet must contain at least one specific number (Rs / % / units / pp)
+        - No generic advice — every line must be actionable for this store's data
+        - No repetition across sections — each section covers distinct ground
+        - Write as a trusted advisor, not a report generator
+        """
     text, fallback = _get_recommendation(prompt)
     return _wrap_html(text, fallback)
 
@@ -641,28 +754,81 @@ def category_recommendation(
         f"\nPREDICTIVE SIGNALS: No prior {period_label} snapshot yet — predictions will appear from next run.\n"
     )
 
-    prompt = f"""Store: "{store_name}" | {report_type} | Total Sales: Rs.{total_sales:,.2f} | Avg margin: {intel['avg_margin_pct']}%
+    prompt = f"""
+        You are a retail merchandising analyst evaluating CATEGORY performance.
 
-TOP 10 CATEGORIES by revenue:
-{json.dumps(intel['top_10_by_revenue'], indent=2)}
+        Focus: category mix, demand distribution, and shelf optimization.
 
-BOTTOM 5 CATEGORIES by quantity (store avg: {intel['avg_qty_sold']} units):
-{json.dumps(intel['bottom_5_by_quantity'], indent=2)}
+        Store: "{store_name}" | {report_type}
+        Total Sales: Rs.{total_sales:,.2f}
+        Avg Margin: {intel['avg_margin_pct']}%
 
-LOW MARGIN / HIGH RISK CATEGORIES:
-{json.dumps(cat_margin_candidates[:5], indent=2)}
+        ================ DATA =================
 
-HIGH MARGIN UNDERUTILISED:
-{json.dumps(cat_gem_candidates[:3], indent=2)}
+        TOP CATEGORIES:
+        {json.dumps(intel['top_10_by_revenue'][:5], indent=2)}
 
-MIX SHIFT RISK:
-{json.dumps(intel['mix_risk_items'], indent=2)}
+        LOW PERFORMANCE CATEGORIES:
+        {json.dumps(intel['bottom_5_by_quantity'], indent=2)}
 
-CONCENTRATION: {conc}
-ANOMALIES: {json.dumps(intel['anomalies']) if intel['anomalies'] else "None"}
-{trend_section}{pred_section}
+        LOW MARGIN CATEGORIES:
+        {json.dumps(cat_margin_candidates[:5], indent=2)}
 
-Write 5 actionable bullet points covering: top revenue categories, margin risks, hidden opportunities, slow movers, and trend/predictive signals."""
+        HIGH MARGIN OPPORTUNITIES:
+        {json.dumps(cat_gem_candidates[:3], indent=2)}
+
+        MIX RISK:
+        {json.dumps(intel['mix_risk_items'], indent=2)}
+
+        CONCENTRATION:
+        Top 3 categories contribute {intel['top3_revenue_share_pct']}%
+
+        ANOMALIES:
+        {json.dumps(intel['anomalies']) if intel['anomalies'] else "None"}
+
+        TRENDS:
+        {json.dumps(intel['trend_declining'], indent=2) if intel['trend_declining'] else "Stable"}
+
+        PREDICTIONS:
+        {json.dumps(pred, indent=2)}
+
+        ================ OUTPUT =================
+
+        Return EXACTLY these 5 sections, each with 3 tight bullet points:
+
+        1. STORE HEALTH SCORE
+        - Score (0–100) with label (Healthy / Moderate / At Risk)
+        - Key drivers: category concentration %, avg margin %, number of low-margin or mix-risk categories
+        - Single biggest structural weakness in the category mix and recommended fix
+
+        2. REVENUE FORECAST
+        - Direction (Growth / Stable / Decline) with estimated % and projected Rs impact on next week
+        - Top 2–3 categories driving that direction with their individual sales change %
+        - Biggest category risk — which one could pull revenue down and why
+
+        3. PEAK SALES DRIVER
+        - Top category by revenue: name, Rs sales, contribution %, WoW change
+        - Second and third strongest categories and their momentum trend
+        - Action: how to capitalise — increase shelf allocation, bundle with rising star, or defend against decline
+
+        4. INVENTORY EFFICIENCY
+        - Categories with stockout or surging demand: name, qty growth %, reorder urgency
+        - Overstocked or slow categories: name, units sold, Rs of idle inventory — flag for markdown or reallocation
+        - One structural action: shelf space rebalancing, vendor lead time fix, or reorder frequency change
+
+        5. MARGIN INTELLIGENCE
+        - Worst margin category: name, margin %, Rs sales, and the profit being lost
+        - Mix risk: high-revenue but low-margin categories dragging overall store margin down
+        - Immediate action: which category to reduce shelf space for, which to promote, and what margin target to set
+
+        ================ RULES =================
+
+        - Exactly 3 bullet points per section — no more, no less
+        - Every bullet must contain at least one specific number (Rs / % / units / pp)
+        - No generic advice — every line must be actionable for this store's category data
+        - No repetition across sections — each covers distinct ground
+        - Focus on category mix decisions a store manager can act on today
+        """
     text, fallback = _get_recommendation(prompt)
     return _wrap_html(text, fallback)
 
@@ -716,28 +882,75 @@ def product_recommendation(
         f"\nPREDICTIVE SIGNALS: No prior {period_label} snapshot yet — predictions will appear from next run.\n"
     )
 
-    prompt = f"""Store: "{store_name}" | {report_type} | Total Sales: Rs.{total_sales:,.2f} | Avg margin: {intel['avg_margin_pct']}%
+    prompt = f"""
+        You are a store operations analyst evaluating PRODUCT (SKU-level) performance.
 
-TOP 10 PRODUCTS by revenue:
-{json.dumps(intel['top_10_by_revenue'], indent=2)}
+        Focus: fast movers, dead stock, and execution decisions.
 
-BOTTOM 5 PRODUCTS by quantity (store avg: {intel['avg_qty_sold']} units):
-{json.dumps(intel['bottom_5_by_quantity'], indent=2)}
+        Store: "{store_name}" | {report_type}
+        Total Sales: Rs.{total_sales:,.2f}
+        Avg Margin: {intel['avg_margin_pct']}%
 
-LOW MARGIN / HIGH RISK PRODUCTS:
-{json.dumps(prod_margin_candidates[:5], indent=2)}
+        ================ DATA =================
 
-HIGH MARGIN UNDERUTILISED:
-{json.dumps(prod_gem_candidates[:3], indent=2)}
+        TOP PRODUCTS:
+        {json.dumps(intel['top_10_by_revenue'][:5], indent=2)}
 
-MIX SHIFT RISK:
-{json.dumps(intel['mix_risk_items'], indent=2)}
+        LOW MOVEMENT PRODUCTS:
+        {json.dumps(intel['bottom_5_by_quantity'], indent=2)}
 
-CONCENTRATION: {conc}
-ANOMALIES: {json.dumps(intel['anomalies']) if intel['anomalies'] else "None"}
-{trend_section}{pred_section}
+        LOW MARGIN PRODUCTS:
+        {json.dumps(intel['low_margin_items'][:5], indent=2)}
 
-Write 5 actionable bullet points covering: top revenue products, margin risks, hidden opportunities, slow movers, and trend/predictive signals."""
+        HIGH MARGIN PRODUCTS:
+        {json.dumps(intel['hidden_margin_gems'][:3], indent=2)}
+
+        ANOMALIES:
+        {json.dumps(intel['anomalies']) if intel['anomalies'] else "None"}
+
+        TRENDS:
+        {json.dumps(intel['trend_declining'], indent=2) if intel['trend_declining'] else "Stable"}
+
+        PREDICTIONS:
+        {json.dumps(pred, indent=2)}
+
+        ================ OUTPUT =================
+
+        Return EXACTLY these 5 sections, each with 3 tight bullet points:
+
+        1. STORE HEALTH SCORE
+        - Score (0–100) with label (Healthy / Moderate / At Risk)
+        - Key drivers: SKU velocity spread, dead stock count, negative/low margin SKU count
+        - Single most urgent SKU-level problem and the fix needed today
+
+        2. REVENUE FORECAST
+        - Direction (Growth / Stable / Decline) with estimated % and projected Rs impact on next week
+        - Top 2–3 SKUs driving that direction: name, Rs sales, WoW change %
+        - Biggest SKU risk — which product is declining fastest and what happens if unchecked
+
+        3. PEAK SALES DRIVER
+        - Top SKU by revenue: name, Rs sales, contribution %, WoW change, units sold
+        - Second and third strongest SKUs and whether their momentum is building or fading
+        - Action: restock priority, promotional push, or shelf positioning change to protect the top drivers
+
+        4. INVENTORY EFFICIENCY
+        - Stockout risk SKUs (demand accelerating): name, qty growth %, reorder urgency + vendor to contact
+        - Dead stock / 1-unit-sold SKUs: name, Rs tied up — recommend markdown %, return, or discontinue
+        - One systemic action: e.g. fast-mover reorder cycle, dead stock clearance timeline, or GRN fix
+
+        5. MARGIN INTELLIGENCE
+        - Worst margin SKU: name, margin %, Rs sales, actual Rs profit being lost per week
+        - SKUs with margin erosion >3pp: name, shift in pp — likely cause (supplier cost / underpricing)
+        - Immediate action per SKU: delist / reprice / renegotiate — with specific margin target to recover
+
+        ================ RULES =================
+
+        - Exactly 3 bullet points per section — no more, no less
+        - Every bullet must contain at least one specific number (Rs / % / units / pp)
+        - No generic advice — every line must reference specific SKUs from the data
+        - No repetition across sections — each covers distinct ground
+        - Write as a store operations advisor giving execution-ready instructions
+        """
     text, fallback = _get_recommendation(prompt)
     return _wrap_html(text, fallback)
 
@@ -809,11 +1022,11 @@ _STOCK_BULLET_RULES = (
 )
 
 #Stock bullet colour constants
-_C_NEG     = "#c62828" 
-_C_OOS     = "#e65100" 
-_C_LOW     = "#f57c00" 
-_C_GAP     = "#1565c0" 
-_C_PATTERN = "#6a1b9a" 
+_C_NEG     = "#c62828"
+_C_OOS     = "#e65100"
+_C_LOW     = "#f57c00"
+_C_GAP     = "#1565c0"
+_C_PATTERN = "#6a1b9a"
 
 def _sb(color: str, text: str) -> str:
     """Wrap one stock alert bullet as a coloured HTML div."""
@@ -944,13 +1157,13 @@ def _compute_stock_intelligence(
     return {
         "oos_items":       oos_items,
         "low_items":       low_items,
-        "neg_items":       neg_items, 
+        "neg_items":       neg_items,
         "neg_products":    neg_products,
         "high_value_oos":  high_value_oos,
         "total_skus":      len(df),
         "oos_count":       len(oos_df),
         "low_count":       len(low_df),
-        "neg_count":       len(neg_df), 
+        "neg_count":       len(neg_df),
         "threshold":       threshold,
     }
 
@@ -959,7 +1172,7 @@ def _wrap_stock_html(bullets: list) -> str:
     if not bullets:
         return _LOW_STOCK_UNAVAILABLE
     return _LOW_STOCK_STYLE.format(
-        header="New Shop Stock Alert",
+        header="Stock Alerts",
         body="".join(bullets),
     )
 
@@ -975,7 +1188,7 @@ def brand_stock_insight(
     """
     stock_df = _load_stock_csv(store_name, stock_dir)
     if stock_df.empty:
-        return "" 
+        return ""
 
     intel = _compute_stock_intelligence(stock_df, "brand", low_stock_threshold)
     if not intel or (intel["oos_count"] == 0 and intel["low_count"] == 0 and intel["neg_count"] == 0):

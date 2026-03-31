@@ -15,7 +15,7 @@ SENDER_PASSWORD = "app_pwd"
 CC_EMAILS = ['firstmail', 'secondmail']
 BCC_EMAILS = ["bccmail"]
 
-PARTNER_FILE = "/base/dir/partner.csv"
+PARTNER_FILE = "/base/dir/partner_month.csv"
 
 def create_email_body(store_name, pdf_link):
     """Return the HTML email body for a specific store."""

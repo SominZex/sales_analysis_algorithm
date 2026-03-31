@@ -1,252 +1,1297 @@
 {
-  "title": "Sales Analysis Pipeline — Full DAG",
+  "title": "Sales Analysis Pipeline \u2014 Full DAG",
   "uid": "sales-dag-v2",
   "schemaVersion": 38,
   "version": 1,
   "refresh": "30s",
-  "time": { "from": "now-24h", "to": "now" },
+  "time": {
+    "from": "now-24h",
+    "to": "now"
+  },
   "panels": [
-
-    { "id": 1, "title": "── DAG OVERVIEW ──", "type": "text",
-      "gridPos": { "x": 0, "y": 0, "w": 24, "h": 2 },
-      "options": { "content": "### Sales Master Pipeline — etl → analysis → weekly/monthly reports → mail → stock/RTV/WA", "mode": "markdown" }
+    {
+      "id": 1,
+      "title": "\u2500\u2500 DAG OVERVIEW \u2500\u2500",
+      "type": "text",
+      "gridPos": {
+        "x": 0,
+        "y": 0,
+        "w": 24,
+        "h": 2
+      },
+      "options": {
+        "content": "### Sales Master Pipeline \u2014 etl \u2192 analysis \u2192 weekly/monthly reports \u2192 mail \u2192 stock/RTV/WA",
+        "mode": "markdown"
+      },
+      "datasource": {
+        "type": "prometheus",
+        "uid": "PBFA97CFB590B2093"
+      }
     },
-
-    { "id": 2, "title": "Task Run Status (all scripts)", "type": "table",
-      "gridPos": { "x": 0, "y": 2, "w": 12, "h": 6 },
-      "targets": [{ "expr": "task_runs_total", "legendFormat": "{{script}} — {{status}}", "instant": true }]
-    },
-
-    { "id": 3, "title": "Task Duration (seconds)", "type": "bargauge",
-      "gridPos": { "x": 12, "y": 2, "w": 12, "h": 6 },
-      "targets": [{ "expr": "task_duration_seconds", "legendFormat": "{{script}}", "instant": true }],
-      "options": { "orientation": "horizontal", "reduceOptions": { "calcs": ["lastNotNull"] } }
-    },
-
-    { "id": 4, "title": "Pipeline Errors by Script", "type": "table",
-      "gridPos": { "x": 0, "y": 8, "w": 12, "h": 5 },
-      "targets": [{ "expr": "task_errors_total", "legendFormat": "{{script}} / {{error_type}}", "instant": true }],
-      "fieldConfig": { "defaults": { "thresholds": { "steps": [{ "value": 0, "color": "green" }, { "value": 1, "color": "red" }] } } }
-    },
-
-    { "id": 5, "title": "Task Duration over Time", "type": "timeseries",
-      "gridPos": { "x": 12, "y": 8, "w": 12, "h": 5 },
-      "targets": [{ "expr": "task_duration_seconds", "legendFormat": "{{script}}" }]
-    },
-
-    { "id": 6, "title": "── ETL LAYER ──", "type": "text",
-      "gridPos": { "x": 0, "y": 13, "w": 24, "h": 2 },
-      "options": { "content": "### ETL — etl_pip.py + product_update.py", "mode": "markdown" }
-    },
-
-    { "id": 7, "title": "Rows Loaded per Table", "type": "stat",
-      "gridPos": { "x": 0, "y": 15, "w": 8, "h": 4 },
-      "targets": [{ "expr": "etl_rows_loaded", "legendFormat": "{{table}}" }],
-      "options": { "reduceOptions": { "calcs": ["lastNotNull"] } }
-    },
-
-    { "id": 8, "title": "ETL API Errors", "type": "stat",
-      "gridPos": { "x": 8, "y": 15, "w": 8, "h": 4 },
-      "targets": [{ "expr": "sum(etl_api_errors_total)", "legendFormat": "API Errors" }],
-      "fieldConfig": { "defaults": { "thresholds": { "steps": [{ "value": 0, "color": "green" }, { "value": 1, "color": "red" }] } } }
-    },
-
-    { "id": 9, "title": "ETL Row Load Trend", "type": "timeseries",
-      "gridPos": { "x": 16, "y": 15, "w": 8, "h": 4 },
-      "targets": [{ "expr": "etl_rows_loaded", "legendFormat": "{{table}}" }]
-    },
-
-    { "id": 10, "title": "── DATABASE ──", "type": "text",
-      "gridPos": { "x": 0, "y": 19, "w": 24, "h": 2 },
-      "options": { "content": "### DB Queries — analysis.py, weekly_llm.py, monthly_llm.py", "mode": "markdown" }
-    },
-
-    { "id": 11, "title": "DB Query Duration (seconds)", "type": "timeseries",
-      "gridPos": { "x": 0, "y": 21, "w": 12, "h": 5 },
-      "targets": [{ "expr": "db_query_duration_seconds", "legendFormat": "{{script}} / {{query_label}}" }]
-    },
-
-    { "id": 12, "title": "DB Errors + Retries", "type": "timeseries",
-      "gridPos": { "x": 12, "y": 21, "w": 12, "h": 5 },
+    {
+      "id": 2,
+      "title": "Task Run Status (all scripts)",
+      "type": "table",
+      "gridPos": {
+        "x": 0,
+        "y": 2,
+        "w": 12,
+        "h": 6
+      },
       "targets": [
-        { "expr": "sum(db_query_errors_total)", "legendFormat": "Errors" },
-        { "expr": "sum(db_retries_total)", "legendFormat": "Retries" }
-      ]
+        {
+          "expr": "task_runs_total",
+          "legendFormat": "{{script}} \u2014 {{status}}",
+          "instant": true,
+          "datasource": {
+            "type": "prometheus",
+            "uid": "PBFA97CFB590B2093"
+          }
+        }
+      ],
+      "datasource": {
+        "type": "prometheus",
+        "uid": "PBFA97CFB590B2093"
+      }
     },
-
-    { "id": 13, "title": "── REPORT GENERATION ──", "type": "text",
-      "gridPos": { "x": 0, "y": 26, "w": 24, "h": 2 },
-      "options": { "content": "### Reports — weekly_llm.py + monthly_llm.py", "mode": "markdown" }
-    },
-
-    { "id": 14, "title": "Weekly Reports — Success", "type": "stat",
-      "gridPos": { "x": 0, "y": 28, "w": 4, "h": 4 },
-      "targets": [{ "expr": "sum(report_generation_total{report_type='weekly',status='success'})", "legendFormat": "Success" }],
-      "fieldConfig": { "defaults": { "thresholds": { "steps": [{ "value": 0, "color": "red" }, { "value": 1, "color": "green" }] } } }
-    },
-
-    { "id": 15, "title": "Weekly Reports — Failed", "type": "stat",
-      "gridPos": { "x": 4, "y": 28, "w": 4, "h": 4 },
-      "targets": [{ "expr": "sum(report_generation_total{report_type='weekly',status='failure'})", "legendFormat": "Failed" }],
-      "fieldConfig": { "defaults": { "thresholds": { "steps": [{ "value": 0, "color": "green" }, { "value": 1, "color": "red" }] } } }
-    },
-
-    { "id": 16, "title": "Monthly Reports — Success", "type": "stat",
-      "gridPos": { "x": 8, "y": 28, "w": 4, "h": 4 },
-      "targets": [{ "expr": "sum(report_generation_total{report_type='monthly',status='success'})", "legendFormat": "Success" }],
-      "fieldConfig": { "defaults": { "thresholds": { "steps": [{ "value": 0, "color": "red" }, { "value": 1, "color": "green" }] } } }
-    },
-
-    { "id": 17, "title": "Monthly Reports — Failed", "type": "stat",
-      "gridPos": { "x": 12, "y": 28, "w": 4, "h": 4 },
-      "targets": [{ "expr": "sum(report_generation_total{report_type='monthly',status='failure'})", "legendFormat": "Failed" }],
-      "fieldConfig": { "defaults": { "thresholds": { "steps": [{ "value": 0, "color": "green" }, { "value": 1, "color": "red" }] } } }
-    },
-
-    { "id": 18, "title": "Stores Processed This Run", "type": "bargauge",
-      "gridPos": { "x": 16, "y": 28, "w": 8, "h": 4 },
-      "targets": [{ "expr": "stores_processed_total", "legendFormat": "{{report_type}} — {{status}}", "instant": true }],
-      "options": { "orientation": "horizontal" }
-    },
-
-    { "id": 19, "title": "Report Duration per Store (weekly)", "type": "timeseries",
-      "gridPos": { "x": 0, "y": 32, "w": 12, "h": 6 },
-      "targets": [{ "expr": "report_duration_seconds{report_type='weekly'}", "legendFormat": "{{store}}" }]
-    },
-
-    { "id": 20, "title": "Report Duration per Store (monthly)", "type": "timeseries",
-      "gridPos": { "x": 12, "y": 32, "w": 12, "h": 6 },
-      "targets": [{ "expr": "report_duration_seconds{report_type='monthly'}", "legendFormat": "{{store}}" }]
-    },
-
-    { "id": 21, "title": "── LLM ──", "type": "text",
-      "gridPos": { "x": 0, "y": 38, "w": 24, "h": 2 },
-      "options": { "content": "### LLM Calls — llm_recommender.py (Groq + Ollama)", "mode": "markdown" }
-    },
-
-    { "id": 22, "title": "LLM Calls — Groq vs Ollama", "type": "timeseries",
-      "gridPos": { "x": 0, "y": 40, "w": 8, "h": 5 },
-      "targets": [{ "expr": "llm_calls_total", "legendFormat": "{{provider}} — {{status}}" }]
-    },
-
-    { "id": 23, "title": "LLM Latency (seconds)", "type": "timeseries",
-      "gridPos": { "x": 8, "y": 40, "w": 8, "h": 5 },
-      "targets": [{ "expr": "llm_call_duration_seconds", "legendFormat": "{{provider}}" }]
-    },
-
-    { "id": 24, "title": "Groq Rate Limits + Fallbacks", "type": "stat",
-      "gridPos": { "x": 16, "y": 40, "w": 4, "h": 5 },
+    {
+      "id": 3,
+      "title": "Task Duration (seconds)",
+      "type": "bargauge",
+      "gridPos": {
+        "x": 12,
+        "y": 2,
+        "w": 12,
+        "h": 6
+      },
       "targets": [
-        { "expr": "llm_rate_limits_total", "legendFormat": "Rate Limits" },
-        { "expr": "llm_fallbacks_total", "legendFormat": "Ollama Fallbacks" }
-      ]
+        {
+          "expr": "task_duration_seconds",
+          "legendFormat": "{{script}}",
+          "instant": true,
+          "datasource": {
+            "type": "prometheus",
+            "uid": "PBFA97CFB590B2093"
+          }
+        }
+      ],
+      "options": {
+        "orientation": "horizontal",
+        "reduceOptions": {
+          "calcs": [
+            "lastNotNull"
+          ]
+        }
+      },
+      "datasource": {
+        "type": "prometheus",
+        "uid": "PBFA97CFB590B2093"
+      }
     },
-
-    { "id": 25, "title": "LLM Failure Rate %", "type": "gauge",
-      "gridPos": { "x": 20, "y": 40, "w": 4, "h": 5 },
-      "targets": [{ "expr": "sum(llm_calls_total{status='failure'}) / sum(llm_calls_total) * 100", "legendFormat": "Failure %" }],
-      "fieldConfig": { "defaults": { "min": 0, "max": 100, "unit": "percent",
-        "thresholds": { "steps": [{ "value": 0, "color": "green" }, { "value": 10, "color": "yellow" }, { "value": 25, "color": "red" }] } } }
+    {
+      "id": 4,
+      "title": "Pipeline Errors by Script",
+      "type": "table",
+      "gridPos": {
+        "x": 0,
+        "y": 8,
+        "w": 12,
+        "h": 5
+      },
+      "targets": [
+        {
+          "expr": "task_errors_total",
+          "legendFormat": "{{script}} / {{error_type}}",
+          "instant": true,
+          "datasource": {
+            "type": "prometheus",
+            "uid": "PBFA97CFB590B2093"
+          }
+        }
+      ],
+      "fieldConfig": {
+        "defaults": {
+          "thresholds": {
+            "steps": [
+              {
+                "value": 0,
+                "color": "green"
+              },
+              {
+                "value": 1,
+                "color": "red"
+              }
+            ]
+          }
+        }
+      },
+      "datasource": {
+        "type": "prometheus",
+        "uid": "PBFA97CFB590B2093"
+      }
     },
-
-    { "id": 26, "title": "── MAIL ──", "type": "text",
-      "gridPos": { "x": 0, "y": 45, "w": 24, "h": 2 },
-      "options": { "content": "### Mail Distribution — mail.py + monthly_mail.py", "mode": "markdown" }
+    {
+      "id": 5,
+      "title": "Task Duration over Time",
+      "type": "timeseries",
+      "gridPos": {
+        "x": 12,
+        "y": 8,
+        "w": 12,
+        "h": 5
+      },
+      "targets": [
+        {
+          "expr": "task_duration_seconds",
+          "legendFormat": "{{script}}",
+          "datasource": {
+            "type": "prometheus",
+            "uid": "PBFA97CFB590B2093"
+          }
+        }
+      ],
+      "datasource": {
+        "type": "prometheus",
+        "uid": "PBFA97CFB590B2093"
+      }
     },
-
-    { "id": 27, "title": "Emails Sent by Type", "type": "stat",
-      "gridPos": { "x": 0, "y": 47, "w": 8, "h": 4 },
-      "targets": [{ "expr": "mail_sent_total", "legendFormat": "{{report_type}} — {{status}}" }]
+    {
+      "id": 6,
+      "title": "\u2500\u2500 ETL LAYER \u2500\u2500",
+      "type": "text",
+      "gridPos": {
+        "x": 0,
+        "y": 13,
+        "w": 24,
+        "h": 2
+      },
+      "options": {
+        "content": "### ETL \u2014 etl/core_pipeline.py + product_update.py",
+        "mode": "markdown"
+      },
+      "datasource": {
+        "type": "prometheus",
+        "uid": "PBFA97CFB590B2093"
+      }
     },
-
-    { "id": 28, "title": "Mail Distribution Duration (seconds)", "type": "timeseries",
-      "gridPos": { "x": 8, "y": 47, "w": 16, "h": 4 },
-      "targets": [{ "expr": "mail_duration_seconds", "legendFormat": "{{report_type}}" }]
+    {
+      "id": 7,
+      "title": "Rows Loaded per Table",
+      "type": "stat",
+      "gridPos": {
+        "x": 0,
+        "y": 15,
+        "w": 8,
+        "h": 4
+      },
+      "targets": [
+        {
+          "expr": "etl_rows_loaded",
+          "legendFormat": "{{table}}",
+          "datasource": {
+            "type": "prometheus",
+            "uid": "PBFA97CFB590B2093"
+          }
+        }
+      ],
+      "options": {
+        "reduceOptions": {
+          "calcs": [
+            "lastNotNull"
+          ]
+        }
+      },
+      "datasource": {
+        "type": "prometheus",
+        "uid": "PBFA97CFB590B2093"
+      }
     },
-
-    { "id": 29, "title": "── STOCK & RTV ──", "type": "text",
-      "gridPos": { "x": 0, "y": 51, "w": 24, "h": 2 },
-      "options": { "content": "### Stock — stock.py + rtv_report.py", "mode": "markdown" }
+    {
+      "id": 8,
+      "title": "ETL API Errors",
+      "type": "stat",
+      "gridPos": {
+        "x": 8,
+        "y": 15,
+        "w": 8,
+        "h": 4
+      },
+      "targets": [
+        {
+          "expr": "sum(etl_api_errors_total)",
+          "legendFormat": "API Errors",
+          "datasource": {
+            "type": "prometheus",
+            "uid": "PBFA97CFB590B2093"
+          }
+        }
+      ],
+      "fieldConfig": {
+        "defaults": {
+          "thresholds": {
+            "steps": [
+              {
+                "value": 0,
+                "color": "green"
+              },
+              {
+                "value": 1,
+                "color": "red"
+              }
+            ]
+          }
+        }
+      },
+      "datasource": {
+        "type": "prometheus",
+        "uid": "PBFA97CFB590B2093"
+      }
     },
-
-    { "id": 30, "title": "Negative Stock SKUs per Store", "type": "timeseries",
-      "gridPos": { "x": 0, "y": 53, "w": 8, "h": 5 },
-      "targets": [{ "expr": "negative_stock_skus", "legendFormat": "{{store}}" }]
+    {
+      "id": 9,
+      "title": "ETL Row Load Trend",
+      "type": "timeseries",
+      "gridPos": {
+        "x": 16,
+        "y": 15,
+        "w": 8,
+        "h": 4
+      },
+      "targets": [
+        {
+          "expr": "etl_rows_loaded",
+          "legendFormat": "{{table}}",
+          "datasource": {
+            "type": "prometheus",
+            "uid": "PBFA97CFB590B2093"
+          }
+        }
+      ],
+      "datasource": {
+        "type": "prometheus",
+        "uid": "PBFA97CFB590B2093"
+      }
     },
-
-    { "id": 31, "title": "Low Stock SKUs per Store", "type": "timeseries",
-      "gridPos": { "x": 8, "y": 53, "w": 8, "h": 5 },
-      "targets": [{ "expr": "low_stock_skus", "legendFormat": "{{store}}" }]
+    {
+      "id": 10,
+      "title": "\u2500\u2500 DATABASE \u2500\u2500",
+      "type": "text",
+      "gridPos": {
+        "x": 0,
+        "y": 19,
+        "w": 24,
+        "h": 2
+      },
+      "options": {
+        "content": "### DB Queries \u2014 analysis.py, weekly_azure_llm.py, monthly_azure_llm.py",
+        "mode": "markdown"
+      },
+      "datasource": {
+        "type": "prometheus",
+        "uid": "PBFA97CFB590B2093"
+      }
     },
-
-    { "id": 32, "title": "RTV Lines Today per Store", "type": "bargauge",
-      "gridPos": { "x": 16, "y": 53, "w": 8, "h": 5 },
-      "targets": [{ "expr": "rtv_lines_today", "legendFormat": "{{store}}", "instant": true }],
-      "options": { "orientation": "horizontal" }
+    {
+      "id": 11,
+      "title": "DB Query Duration (seconds)",
+      "type": "timeseries",
+      "gridPos": {
+        "x": 0,
+        "y": 21,
+        "w": 12,
+        "h": 5
+      },
+      "targets": [
+        {
+          "expr": "db_query_duration_seconds",
+          "legendFormat": "{{script}} / {{query_label}}",
+          "datasource": {
+            "type": "prometheus",
+            "uid": "PBFA97CFB590B2093"
+          }
+        }
+      ],
+      "datasource": {
+        "type": "prometheus",
+        "uid": "PBFA97CFB590B2093"
+      }
     },
-
-    { "id": 33, "title": "RTV Value Today (₹) per Store", "type": "bargauge",
-      "gridPos": { "x": 0, "y": 58, "w": 12, "h": 4 },
-      "targets": [{ "expr": "rtv_value_today_inr", "legendFormat": "{{store}}", "instant": true }],
-      "options": { "orientation": "horizontal" },
-      "fieldConfig": { "defaults": { "unit": "currencyINR" } }
+    {
+      "id": 12,
+      "title": "DB Errors + Retries",
+      "type": "timeseries",
+      "gridPos": {
+        "x": 12,
+        "y": 21,
+        "w": 12,
+        "h": 5
+      },
+      "targets": [
+        {
+          "expr": "sum(db_query_errors_total)",
+          "legendFormat": "Errors",
+          "datasource": {
+            "type": "prometheus",
+            "uid": "PBFA97CFB590B2093"
+          }
+        },
+        {
+          "expr": "sum(db_retries_total)",
+          "legendFormat": "Retries",
+          "datasource": {
+            "type": "prometheus",
+            "uid": "PBFA97CFB590B2093"
+          }
+        }
+      ],
+      "datasource": {
+        "type": "prometheus",
+        "uid": "PBFA97CFB590B2093"
+      }
     },
-
-    { "id": 34, "title": "Stock Fetch Failures", "type": "stat",
-      "gridPos": { "x": 12, "y": 58, "w": 6, "h": 4 },
-      "targets": [{ "expr": "sum(stock_fetch_total{status='failure'})", "legendFormat": "Fetch Failures" }],
-      "fieldConfig": { "defaults": { "thresholds": { "steps": [{ "value": 0, "color": "green" }, { "value": 1, "color": "red" }] } } }
+    {
+      "id": 13,
+      "title": "\u2500\u2500 REPORT GENERATION \u2500\u2500",
+      "type": "text",
+      "gridPos": {
+        "x": 0,
+        "y": 26,
+        "w": 24,
+        "h": 2
+      },
+      "options": {
+        "content": "### Reports \u2014 weekly_azure_llm.py + monthly_azure_llm.py",
+        "mode": "markdown"
+      },
+      "datasource": {
+        "type": "prometheus",
+        "uid": "PBFA97CFB590B2093"
+      }
     },
-
-    { "id": 35, "title": "── WHATSAPP ──", "type": "text",
-      "gridPos": { "x": 0, "y": 62, "w": 24, "h": 2 },
-      "options": { "content": "### WhatsApp — wa_sender.py + wa_stock_alert.py", "mode": "markdown" }
+    {
+      "id": 14,
+      "title": "Weekly Reports \u2014 Success",
+      "type": "stat",
+      "gridPos": {
+        "x": 0,
+        "y": 28,
+        "w": 4,
+        "h": 4
+      },
+      "targets": [
+        {
+          "expr": "sum(report_generation_total{report_type=\"weekly\",status=\"success\"})",
+          "legendFormat": "Success",
+          "datasource": {
+            "type": "prometheus",
+            "uid": "PBFA97CFB590B2093"
+          }
+        }
+      ],
+      "fieldConfig": {
+        "defaults": {
+          "thresholds": {
+            "steps": [
+              {
+                "value": 0,
+                "color": "red"
+              },
+              {
+                "value": 1,
+                "color": "green"
+              }
+            ]
+          }
+        }
+      },
+      "datasource": {
+        "type": "prometheus",
+        "uid": "PBFA97CFB590B2093"
+      }
     },
-
-    { "id": 36, "title": "WA Messages Sent by Type", "type": "stat",
-      "gridPos": { "x": 0, "y": 64, "w": 8, "h": 4 },
-      "targets": [{ "expr": "wa_messages_sent_total", "legendFormat": "{{msg_type}} — {{status}}" }]
+    {
+      "id": 15,
+      "title": "Weekly Reports \u2014 Failed",
+      "type": "stat",
+      "gridPos": {
+        "x": 4,
+        "y": 28,
+        "w": 4,
+        "h": 4
+      },
+      "targets": [
+        {
+          "expr": "sum(report_generation_total{report_type=\"weekly\",status=\"failure\"})",
+          "legendFormat": "Failed",
+          "datasource": {
+            "type": "prometheus",
+            "uid": "PBFA97CFB590B2093"
+          }
+        }
+      ],
+      "fieldConfig": {
+        "defaults": {
+          "thresholds": {
+            "steps": [
+              {
+                "value": 0,
+                "color": "green"
+              },
+              {
+                "value": 1,
+                "color": "red"
+              }
+            ]
+          }
+        }
+      },
+      "datasource": {
+        "type": "prometheus",
+        "uid": "PBFA97CFB590B2093"
+      }
     },
-
-    { "id": 37, "title": "WA API Errors", "type": "stat",
-      "gridPos": { "x": 8, "y": 64, "w": 8, "h": 4 },
-      "targets": [{ "expr": "sum(wa_api_errors_total)", "legendFormat": "WA Errors" }],
-      "fieldConfig": { "defaults": { "thresholds": { "steps": [{ "value": 0, "color": "green" }, { "value": 1, "color": "red" }] } } }
+    {
+      "id": 16,
+      "title": "Monthly Reports \u2014 Success",
+      "type": "stat",
+      "gridPos": {
+        "x": 8,
+        "y": 28,
+        "w": 4,
+        "h": 4
+      },
+      "targets": [
+        {
+          "expr": "sum(report_generation_total{report_type=\"monthly\",status=\"success\"})",
+          "legendFormat": "Success",
+          "datasource": {
+            "type": "prometheus",
+            "uid": "PBFA97CFB590B2093"
+          }
+        }
+      ],
+      "fieldConfig": {
+        "defaults": {
+          "thresholds": {
+            "steps": [
+              {
+                "value": 0,
+                "color": "red"
+              },
+              {
+                "value": 1,
+                "color": "green"
+              }
+            ]
+          }
+        }
+      },
+      "datasource": {
+        "type": "prometheus",
+        "uid": "PBFA97CFB590B2093"
+      }
     },
-
-    { "id": 38, "title": "WA Send Trend", "type": "timeseries",
-      "gridPos": { "x": 16, "y": 64, "w": 8, "h": 4 },
-      "targets": [{ "expr": "wa_messages_sent_total", "legendFormat": "{{msg_type}} — {{status}}" }]
+    {
+      "id": 17,
+      "title": "Monthly Reports \u2014 Failed",
+      "type": "stat",
+      "gridPos": {
+        "x": 12,
+        "y": 28,
+        "w": 4,
+        "h": 4
+      },
+      "targets": [
+        {
+          "expr": "sum(report_generation_total{report_type=\"monthly\",status=\"failure\"})",
+          "legendFormat": "Failed",
+          "datasource": {
+            "type": "prometheus",
+            "uid": "PBFA97CFB590B2093"
+          }
+        }
+      ],
+      "fieldConfig": {
+        "defaults": {
+          "thresholds": {
+            "steps": [
+              {
+                "value": 0,
+                "color": "green"
+              },
+              {
+                "value": 1,
+                "color": "red"
+              }
+            ]
+          }
+        }
+      },
+      "datasource": {
+        "type": "prometheus",
+        "uid": "PBFA97CFB590B2093"
+      }
     },
-
-    { "id": 39, "title": "── VM HEALTH ──", "type": "text",
-      "gridPos": { "x": 0, "y": 68, "w": 24, "h": 2 },
-      "options": { "content": "### Azure VM — CPU / Memory / Disk", "mode": "markdown" }
+    {
+      "id": 18,
+      "title": "Stores Processed This Run",
+      "type": "bargauge",
+      "gridPos": {
+        "x": 16,
+        "y": 28,
+        "w": 8,
+        "h": 4
+      },
+      "targets": [
+        {
+          "expr": "stores_processed_total",
+          "legendFormat": "{{report_type}} \u2014 {{status}}",
+          "instant": true,
+          "datasource": {
+            "type": "prometheus",
+            "uid": "PBFA97CFB590B2093"
+          }
+        }
+      ],
+      "options": {
+        "orientation": "horizontal"
+      },
+      "datasource": {
+        "type": "prometheus",
+        "uid": "PBFA97CFB590B2093"
+      }
     },
-
-    { "id": 40, "title": "CPU Usage %", "type": "timeseries",
-      "gridPos": { "x": 0, "y": 70, "w": 8, "h": 5 },
-      "targets": [{ "expr": "100 - (avg(rate(node_cpu_seconds_total{mode='idle'}[5m])) * 100)", "legendFormat": "CPU %" }]
+    {
+      "id": 19,
+      "title": "Report Duration per Store (weekly)",
+      "type": "timeseries",
+      "gridPos": {
+        "x": 0,
+        "y": 32,
+        "w": 12,
+        "h": 6
+      },
+      "targets": [
+        {
+          "expr": "report_duration_seconds{report_type=\"weekly\"}",
+          "legendFormat": "{{store}}",
+          "datasource": {
+            "type": "prometheus",
+            "uid": "PBFA97CFB590B2093"
+          }
+        }
+      ],
+      "datasource": {
+        "type": "prometheus",
+        "uid": "PBFA97CFB590B2093"
+      }
     },
-
-    { "id": 41, "title": "Memory Usage %", "type": "timeseries",
-      "gridPos": { "x": 8, "y": 70, "w": 8, "h": 5 },
-      "targets": [{ "expr": "(1 - node_memory_MemAvailable_bytes / node_memory_MemTotal_bytes) * 100", "legendFormat": "RAM %" }]
+    {
+      "id": 20,
+      "title": "Report Duration per Store (monthly)",
+      "type": "timeseries",
+      "gridPos": {
+        "x": 12,
+        "y": 32,
+        "w": 12,
+        "h": 6
+      },
+      "targets": [
+        {
+          "expr": "report_duration_seconds{report_type=\"monthly\"}",
+          "legendFormat": "{{store}}",
+          "datasource": {
+            "type": "prometheus",
+            "uid": "PBFA97CFB590B2093"
+          }
+        }
+      ],
+      "datasource": {
+        "type": "prometheus",
+        "uid": "PBFA97CFB590B2093"
+      }
     },
-
-    { "id": 42, "title": "Root Disk Usage %", "type": "gauge",
-      "gridPos": { "x": 16, "y": 70, "w": 4, "h": 5 },
-      "targets": [{ "expr": "(1 - node_filesystem_avail_bytes{mountpoint='/'} / node_filesystem_size_bytes{mountpoint='/'}) * 100", "legendFormat": "Root %" }],
-      "fieldConfig": { "defaults": { "min": 0, "max": 100, "unit": "percent",
-        "thresholds": { "steps": [{ "value": 0, "color": "green" }, { "value": 70, "color": "yellow" }, { "value": 85, "color": "red" }] } } }
+    {
+      "id": 21,
+      "title": "\u2500\u2500 LLM \u2500\u2500",
+      "type": "text",
+      "gridPos": {
+        "x": 0,
+        "y": 38,
+        "w": 24,
+        "h": 2
+      },
+      "options": {
+        "content": "### LLM Calls \u2014 llm_recommender.py (Groq + Ollama)",
+        "mode": "markdown"
+      },
+      "datasource": {
+        "type": "prometheus",
+        "uid": "PBFA97CFB590B2093"
+      }
     },
-
-    { "id": 43, "title": "/mnt Disk Usage %", "type": "gauge",
-      "gridPos": { "x": 20, "y": 70, "w": 4, "h": 5 },
-      "targets": [{ "expr": "(1 - node_filesystem_avail_bytes{mountpoint='/mnt'} / node_filesystem_size_bytes{mountpoint='/mnt'}) * 100", "legendFormat": "/mnt %" }],
-      "fieldConfig": { "defaults": { "min": 0, "max": 100, "unit": "percent",
-        "thresholds": { "steps": [{ "value": 0, "color": "green" }, { "value": 70, "color": "yellow" }, { "value": 85, "color": "red" }] } } }
+    {
+      "id": 22,
+      "title": "LLM Calls \u2014 Groq vs Ollama",
+      "type": "timeseries",
+      "gridPos": {
+        "x": 0,
+        "y": 40,
+        "w": 8,
+        "h": 5
+      },
+      "targets": [
+        {
+          "expr": "llm_calls_total",
+          "legendFormat": "{{provider}} \u2014 {{status}}",
+          "datasource": {
+            "type": "prometheus",
+            "uid": "PBFA97CFB590B2093"
+          }
+        }
+      ],
+      "datasource": {
+        "type": "prometheus",
+        "uid": "PBFA97CFB590B2093"
+      }
+    },
+    {
+      "id": 23,
+      "title": "LLM Latency (seconds)",
+      "type": "timeseries",
+      "gridPos": {
+        "x": 8,
+        "y": 40,
+        "w": 8,
+        "h": 5
+      },
+      "targets": [
+        {
+          "expr": "llm_call_duration_seconds",
+          "legendFormat": "{{provider}}",
+          "datasource": {
+            "type": "prometheus",
+            "uid": "PBFA97CFB590B2093"
+          }
+        }
+      ],
+      "datasource": {
+        "type": "prometheus",
+        "uid": "PBFA97CFB590B2093"
+      }
+    },
+    {
+      "id": 24,
+      "title": "Groq Rate Limits + Fallbacks",
+      "type": "stat",
+      "gridPos": {
+        "x": 16,
+        "y": 40,
+        "w": 4,
+        "h": 5
+      },
+      "targets": [
+        {
+          "expr": "llm_rate_limits_total",
+          "legendFormat": "Rate Limits",
+          "datasource": {
+            "type": "prometheus",
+            "uid": "PBFA97CFB590B2093"
+          }
+        },
+        {
+          "expr": "llm_fallbacks_total",
+          "legendFormat": "Ollama Fallbacks",
+          "datasource": {
+            "type": "prometheus",
+            "uid": "PBFA97CFB590B2093"
+          }
+        }
+      ],
+      "datasource": {
+        "type": "prometheus",
+        "uid": "PBFA97CFB590B2093"
+      }
+    },
+    {
+      "id": 25,
+      "title": "LLM Failure Rate %",
+      "type": "gauge",
+      "gridPos": {
+        "x": 20,
+        "y": 40,
+        "w": 4,
+        "h": 5
+      },
+      "targets": [
+        {
+          "expr": "sum(llm_calls_total{status=\"failure\"}) / sum(llm_calls_total) * 100",
+          "legendFormat": "Failure %",
+          "datasource": {
+            "type": "prometheus",
+            "uid": "PBFA97CFB590B2093"
+          }
+        }
+      ],
+      "fieldConfig": {
+        "defaults": {
+          "min": 0,
+          "max": 100,
+          "unit": "percent",
+          "thresholds": {
+            "steps": [
+              {
+                "value": 0,
+                "color": "green"
+              },
+              {
+                "value": 10,
+                "color": "yellow"
+              },
+              {
+                "value": 25,
+                "color": "red"
+              }
+            ]
+          }
+        }
+      },
+      "datasource": {
+        "type": "prometheus",
+        "uid": "PBFA97CFB590B2093"
+      }
+    },
+    {
+      "id": 26,
+      "title": "\u2500\u2500 MAIL \u2500\u2500",
+      "type": "text",
+      "gridPos": {
+        "x": 0,
+        "y": 45,
+        "w": 24,
+        "h": 2
+      },
+      "options": {
+        "content": "### Mail Distribution \u2014 mail.py + monthly_mail.py",
+        "mode": "markdown"
+      },
+      "datasource": {
+        "type": "prometheus",
+        "uid": "PBFA97CFB590B2093"
+      }
+    },
+    {
+      "id": 27,
+      "title": "Emails Sent by Type",
+      "type": "stat",
+      "gridPos": {
+        "x": 0,
+        "y": 47,
+        "w": 8,
+        "h": 4
+      },
+      "targets": [
+        {
+          "expr": "mail_sent_total",
+          "legendFormat": "{{report_type}} \u2014 {{status}}",
+          "datasource": {
+            "type": "prometheus",
+            "uid": "PBFA97CFB590B2093"
+          }
+        }
+      ],
+      "datasource": {
+        "type": "prometheus",
+        "uid": "PBFA97CFB590B2093"
+      }
+    },
+    {
+      "id": 28,
+      "title": "Mail Distribution Duration (seconds)",
+      "type": "timeseries",
+      "gridPos": {
+        "x": 8,
+        "y": 47,
+        "w": 16,
+        "h": 4
+      },
+      "targets": [
+        {
+          "expr": "mail_duration_seconds",
+          "legendFormat": "{{report_type}}",
+          "datasource": {
+            "type": "prometheus",
+            "uid": "PBFA97CFB590B2093"
+          }
+        }
+      ],
+      "datasource": {
+        "type": "prometheus",
+        "uid": "PBFA97CFB590B2093"
+      }
+    },
+    {
+      "id": 29,
+      "title": "\u2500\u2500 STOCK & RTV \u2500\u2500",
+      "type": "text",
+      "gridPos": {
+        "x": 0,
+        "y": 51,
+        "w": 24,
+        "h": 2
+      },
+      "options": {
+        "content": "### Stock \u2014 stock.py + rtv_report.py",
+        "mode": "markdown"
+      },
+      "datasource": {
+        "type": "prometheus",
+        "uid": "PBFA97CFB590B2093"
+      }
+    },
+    {
+      "id": 30,
+      "title": "Negative Stock SKUs per Store",
+      "type": "timeseries",
+      "gridPos": {
+        "x": 0,
+        "y": 53,
+        "w": 8,
+        "h": 5
+      },
+      "targets": [
+        {
+          "expr": "negative_stock_skus",
+          "legendFormat": "{{store}}",
+          "datasource": {
+            "type": "prometheus",
+            "uid": "PBFA97CFB590B2093"
+          }
+        }
+      ],
+      "datasource": {
+        "type": "prometheus",
+        "uid": "PBFA97CFB590B2093"
+      }
+    },
+    {
+      "id": 31,
+      "title": "Low Stock SKUs per Store",
+      "type": "timeseries",
+      "gridPos": {
+        "x": 8,
+        "y": 53,
+        "w": 8,
+        "h": 5
+      },
+      "targets": [
+        {
+          "expr": "low_stock_skus",
+          "legendFormat": "{{store}}",
+          "datasource": {
+            "type": "prometheus",
+            "uid": "PBFA97CFB590B2093"
+          }
+        }
+      ],
+      "datasource": {
+        "type": "prometheus",
+        "uid": "PBFA97CFB590B2093"
+      }
+    },
+    {
+      "id": 32,
+      "title": "RTV Lines Today per Store",
+      "type": "bargauge",
+      "gridPos": {
+        "x": 16,
+        "y": 53,
+        "w": 8,
+        "h": 5
+      },
+      "targets": [
+        {
+          "expr": "rtv_lines_today",
+          "legendFormat": "{{store}}",
+          "instant": true,
+          "datasource": {
+            "type": "prometheus",
+            "uid": "PBFA97CFB590B2093"
+          }
+        }
+      ],
+      "options": {
+        "orientation": "horizontal"
+      },
+      "datasource": {
+        "type": "prometheus",
+        "uid": "PBFA97CFB590B2093"
+      }
+    },
+    {
+      "id": 33,
+      "title": "RTV Value Today (\u20b9) per Store",
+      "type": "bargauge",
+      "gridPos": {
+        "x": 0,
+        "y": 58,
+        "w": 12,
+        "h": 4
+      },
+      "targets": [
+        {
+          "expr": "rtv_value_today_inr",
+          "legendFormat": "{{store}}",
+          "instant": true,
+          "datasource": {
+            "type": "prometheus",
+            "uid": "PBFA97CFB590B2093"
+          }
+        }
+      ],
+      "options": {
+        "orientation": "horizontal"
+      },
+      "fieldConfig": {
+        "defaults": {
+          "unit": "currencyINR"
+        }
+      },
+      "datasource": {
+        "type": "prometheus",
+        "uid": "PBFA97CFB590B2093"
+      }
+    },
+    {
+      "id": 34,
+      "title": "Stock Fetch Failures",
+      "type": "stat",
+      "gridPos": {
+        "x": 12,
+        "y": 58,
+        "w": 6,
+        "h": 4
+      },
+      "targets": [
+        {
+          "expr": "sum(stock_fetch_total{status=\"failure\"})",
+          "legendFormat": "Fetch Failures",
+          "datasource": {
+            "type": "prometheus",
+            "uid": "PBFA97CFB590B2093"
+          }
+        }
+      ],
+      "fieldConfig": {
+        "defaults": {
+          "thresholds": {
+            "steps": [
+              {
+                "value": 0,
+                "color": "green"
+              },
+              {
+                "value": 1,
+                "color": "red"
+              }
+            ]
+          }
+        }
+      },
+      "datasource": {
+        "type": "prometheus",
+        "uid": "PBFA97CFB590B2093"
+      }
+    },
+    {
+      "id": 35,
+      "title": "\u2500\u2500 WHATSAPP \u2500\u2500",
+      "type": "text",
+      "gridPos": {
+        "x": 0,
+        "y": 62,
+        "w": 24,
+        "h": 2
+      },
+      "options": {
+        "content": "### WhatsApp \u2014 wa_sender.py + wa_stock_alert.py",
+        "mode": "markdown"
+      },
+      "datasource": {
+        "type": "prometheus",
+        "uid": "PBFA97CFB590B2093"
+      }
+    },
+    {
+      "id": 36,
+      "title": "WA Messages Sent by Type",
+      "type": "stat",
+      "gridPos": {
+        "x": 0,
+        "y": 64,
+        "w": 8,
+        "h": 4
+      },
+      "targets": [
+        {
+          "expr": "wa_messages_sent_total",
+          "legendFormat": "{{msg_type}} \u2014 {{status}}",
+          "datasource": {
+            "type": "prometheus",
+            "uid": "PBFA97CFB590B2093"
+          }
+        }
+      ],
+      "datasource": {
+        "type": "prometheus",
+        "uid": "PBFA97CFB590B2093"
+      }
+    },
+    {
+      "id": 37,
+      "title": "WA API Errors",
+      "type": "stat",
+      "gridPos": {
+        "x": 8,
+        "y": 64,
+        "w": 8,
+        "h": 4
+      },
+      "targets": [
+        {
+          "expr": "sum(wa_api_errors_total)",
+          "legendFormat": "WA Errors",
+          "datasource": {
+            "type": "prometheus",
+            "uid": "PBFA97CFB590B2093"
+          }
+        }
+      ],
+      "fieldConfig": {
+        "defaults": {
+          "thresholds": {
+            "steps": [
+              {
+                "value": 0,
+                "color": "green"
+              },
+              {
+                "value": 1,
+                "color": "red"
+              }
+            ]
+          }
+        }
+      },
+      "datasource": {
+        "type": "prometheus",
+        "uid": "PBFA97CFB590B2093"
+      }
+    },
+    {
+      "id": 38,
+      "title": "WA Send Trend",
+      "type": "timeseries",
+      "gridPos": {
+        "x": 16,
+        "y": 64,
+        "w": 8,
+        "h": 4
+      },
+      "targets": [
+        {
+          "expr": "wa_messages_sent_total",
+          "legendFormat": "{{msg_type}} \u2014 {{status}}",
+          "datasource": {
+            "type": "prometheus",
+            "uid": "PBFA97CFB590B2093"
+          }
+        }
+      ],
+      "datasource": {
+        "type": "prometheus",
+        "uid": "PBFA97CFB590B2093"
+      }
+    },
+    {
+      "id": 39,
+      "title": "\u2500\u2500 VM HEALTH \u2500\u2500",
+      "type": "text",
+      "gridPos": {
+        "x": 0,
+        "y": 68,
+        "w": 24,
+        "h": 2
+      },
+      "options": {
+        "content": "### Azure VM \u2014 CPU / Memory / Disk",
+        "mode": "markdown"
+      },
+      "datasource": {
+        "type": "prometheus",
+        "uid": "PBFA97CFB590B2093"
+      }
+    },
+    {
+      "id": 40,
+      "title": "CPU Usage %",
+      "type": "timeseries",
+      "gridPos": {
+        "x": 0,
+        "y": 70,
+        "w": 8,
+        "h": 5
+      },
+      "targets": [
+        {
+          "expr": "100 - (avg(rate(node_cpu_seconds_total{mode=\"idle\"}[5m])) * 100)",
+          "legendFormat": "CPU %",
+          "datasource": {
+            "type": "prometheus",
+            "uid": "PBFA97CFB590B2093"
+          }
+        }
+      ],
+      "datasource": {
+        "type": "prometheus",
+        "uid": "PBFA97CFB590B2093"
+      }
+    },
+    {
+      "id": 41,
+      "title": "Memory Usage %",
+      "type": "timeseries",
+      "gridPos": {
+        "x": 8,
+        "y": 70,
+        "w": 8,
+        "h": 5
+      },
+      "targets": [
+        {
+          "expr": "(1 - node_memory_MemAvailable_bytes / node_memory_MemTotal_bytes) * 100",
+          "legendFormat": "RAM %",
+          "datasource": {
+            "type": "prometheus",
+            "uid": "PBFA97CFB590B2093"
+          }
+        }
+      ],
+      "datasource": {
+        "type": "prometheus",
+        "uid": "PBFA97CFB590B2093"
+      }
+    },
+    {
+      "id": 42,
+      "title": "Root Disk Usage %",
+      "type": "gauge",
+      "gridPos": {
+        "x": 16,
+        "y": 70,
+        "w": 4,
+        "h": 5
+      },
+      "targets": [
+        {
+          "expr": "(1 - node_filesystem_avail_bytes{mountpoint=\"/\"} / node_filesystem_size_bytes{mountpoint=\"/\"}) * 100",
+          "legendFormat": "Root %",
+          "datasource": {
+            "type": "prometheus",
+            "uid": "PBFA97CFB590B2093"
+          }
+        }
+      ],
+      "fieldConfig": {
+        "defaults": {
+          "min": 0,
+          "max": 100,
+          "unit": "percent",
+          "thresholds": {
+            "steps": [
+              {
+                "value": 0,
+                "color": "green"
+              },
+              {
+                "value": 70,
+                "color": "yellow"
+              },
+              {
+                "value": 85,
+                "color": "red"
+              }
+            ]
+          }
+        }
+      },
+      "datasource": {
+        "type": "prometheus",
+        "uid": "PBFA97CFB590B2093"
+      }
+    },
+    {
+      "id": 43,
+      "title": "/mnt Disk Usage %",
+      "type": "gauge",
+      "gridPos": {
+        "x": 20,
+        "y": 70,
+        "w": 4,
+        "h": 5
+      },
+      "targets": [
+        {
+          "expr": "(1 - node_filesystem_avail_bytes{mountpoint=\"/mnt\"} / node_filesystem_size_bytes{mountpoint=\"/mnt\"}) * 100",
+          "legendFormat": "/mnt %",
+          "datasource": {
+            "type": "prometheus",
+            "uid": "PBFA97CFB590B2093"
+          }
+        }
+      ],
+      "fieldConfig": {
+        "defaults": {
+          "min": 0,
+          "max": 100,
+          "unit": "percent",
+          "thresholds": {
+            "steps": [
+              {
+                "value": 0,
+                "color": "green"
+              },
+              {
+                "value": 70,
+                "color": "yellow"
+              },
+              {
+                "value": 85,
+                "color": "red"
+              }
+            ]
+          }
+        }
+      },
+      "datasource": {
+        "type": "prometheus",
+        "uid": "PBFA97CFB590B2093"
+      }
     }
+  ],
 
+  "__requires": [
+    {
+      "type": "grafana",
+      "id": "grafana",
+      "name": "Grafana",
+      "version": "9.0.0"
+    },
+    {
+      "type": "datasource",
+      "id": "prometheus",
+      "name": "Prometheus",
+      "version": "1.0.0"
+    }
   ]
 }

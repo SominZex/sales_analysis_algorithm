@@ -77,7 +77,7 @@ EMAIL_CONFIG = {
     'smtp_port': 465,
     'sender_email': 'sender@mail.com',
     'sender_password': 'app_pwd',
-    'to': 'reciever@gmail.com',
+    'to': 'receiver@mail.com',
     'cc_recipients': ['cc@mail.com'],
     'tracking_host': 'http://<ip>:8000',
     'summary_recipient': 'summary@mail.com'
@@ -239,7 +239,7 @@ html.Div([
 
         ], style={'display': 'flex', 'justifyContent': 'center', 'gap': '20px', 'width': '100%'}),
         # --- Add the chart right below the tables ---
-        html.Div(style={'height': '80px'}),
+        html.Div(style={'height': '200px'}),
         html.Div([
             dcc.Graph(
                 id='store-sales-chart',
@@ -932,7 +932,7 @@ async def generate_and_send_report():
 
 if __name__ == '__main__':
     import sys
-    sys.path.insert(0, "/home/azureuser/azure_analysis_algorithm")
+    sys.path.insert(0, "/base/dir")
     from monitoring.metrics import task_timer
     with task_timer("run_analysis"):
         asyncio.run(generate_and_send_report())
