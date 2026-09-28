@@ -1,7 +1,10 @@
 # Sales Intelligence Automation Engine
 
-> A production-grade, fully automated analytics platform that ingests retail sales data, computes deterministic business intelligence signals, and delivers LLM-grounded operational recommendations via scheduled reports and real-time alerts — with zero manual intervention after deployment.
+> This system is not a dashboard. It is a production-grade lakehouse-driven sales intelligence platform designed for multi-store retail operations.
 
+It ingests transactional data, processes it through a Bronze–Silver–Gold data lake architecture on Azure Blob Storage, computes deterministic business intelligence signals, and delivers LLM-grounded operational recommendations, automated reports, and real-time alerts — with zero manual intervention.
+
+The system runs completely unattended. No human in the loop.
 ---
 
 ## Table of Contents
@@ -16,30 +19,26 @@
 - [Distribution](#distribution)
 - [Inventory & RTV Monitoring](#inventory--rtv-monitoring)
 - [Observability](#observability)
-- [PySpark & Distributed Computing](#pyspark--distributed-computing)
 - [Data Quality & Schema Validation](#data-quality--schema-validation)
 - [Reliability & Fault Containment](#reliability--fault-containment)
-- [Airflow Orchestration](#airflow-orchestration)
 - [Installation & Setup](#installation--setup)
 - [Design Principles](#design-principles)
 
 ---
 
-## Overview
-
-This system is not a dashboard. It is an automated sales intelligence engine built for multi-store retail operations. Every day, it ingests transactional data, computes KPIs and risk signals, generates store-level LLM recommendations, produces PDF reports, and distributes them — entirely without human intervention.
 
 **What it does:**
 
-- Ingests daily sales data via API into a PostgreSQL analytics store
-- Validates schema and data quality before any record enters the database
-- Computes revenue, margin, growth, and risk signals deterministically
-- Generates LLM-grounded action recommendations constrained to pre-computed facts
-- Produces Daily, Weekly, and Monthly PDF reports per store
-- Distributes reports via Email and WhatsApp
-- Detects low stock, negative stock (GRN anomalies), and RTV patterns
-- Sends targeted WhatsApp stock alerts to business partners
-- Exposes full pipeline observability via Prometheus and Grafana
+- Ingests daily sales data into a Bronze (raw) data lake layer
+- Transforms and validates data into Silver (cleaned Parquet datasets)
+- Computes Gold-layer pre-aggregated analytics for fast serving
+- Uses PostgreSQL as a low-latency serving layer
+- Generates Daily, Weekly, Monthly reports using precomputed data
+- Sends automated reports via Email and WhatsApp
+- Detects low stock, dead inventory, and operational risks
+- Sends real-time WhatsApp alerts for inventory issues
+- Generates LLM-based recommendations grounded in structured data
+- Exposes full observability via Prometheus + Grafana
 
 ---
 
@@ -48,107 +47,284 @@ This system is not a dashboard. It is an automated sales intelligence engine bui
 ```mermaid
 flowchart TD
 
-A[Retail Sales API]
+    %% =========================
+    %% 1. DATA INGESTION
+    %% =========================
 
-subgraph Data Engineering
-B[Apache Airflow Scheduler]
-C[ETL Pipeline]
-D[PostgreSQL Analytics Store]
-end
+    subgraph INGESTION["1. Data Ingestion"]
 
-subgraph Intelligence Engine
-E[KPI Computation]
-F[Trend Detection]
-G[Risk Scoring]
-H[Structured Insights]
-end
+        BILLING_API["Billing / Sales API"]
+        STOCK_API["Stock API"]
+        GRN_API["GRN API"]
+        RTV_API["RTV API"]
 
-subgraph LLM Layer
-I[Groq LLaMA 3.1 — Primary]
-J[Ollama — Fallback]
-K[Operational Recommendations]
-W[WhatsApp LLM Summary]
-end
+        STORE_API["Store API"]
+        USERS_API["Users API"]
 
-subgraph Reporting
-L[Report Generator]
-M[Daily Report]
-N[Weekly Report]
-O[Monthly Report]
-end
+    end
 
-subgraph Distribution
-P[Email Delivery]
-Q[WhatsApp Automation]
-end
+    %% =========================
+    %% 2. DATA ENGINEERING
+    %% =========================
 
-subgraph Inventory Monitoring
-X[Stock Fetch Pipeline]
-Y[RTV Fetch Pipeline]
-end
+    subgraph ENGINEERING["2. Data Engineering & Storage"]
 
-subgraph Observability
-R[Prometheus]
-S[Pushgateway]
-T[Node Exporter]
-U[Grafana Dashboards]
-end
+        AIRFLOW["Apache Airflow"]
+        ETL["ETL & Data Processing"]
 
-A --> B
-B --> C
-C --> D
+        BRONZE["Bronze<br/>Raw Data"]
+        SILVER["Silver<br/>Cleaned Data"]
+        GOLD["Gold<br/>Aggregated Metrics"]
 
-D --> E
-E --> F
-F --> G
-G --> H
+        POSTGRES["PostgreSQL<br/>Serving Layer"]
 
-H --> I
-H --> J
-I --> K
-J --> K
-K --> L
+    end
 
-L --> M
-L --> N
-L --> O
+    %% =========================
+    %% 3. STORE & PARTNER OPERATIONS
+    %% =========================
 
-N --> W
-W --> Q
-M --> Q
-N --> P
-O --> P
+    subgraph OPERATIONS["3. Store & Partner Operations"]
 
-A --> X
-A --> Y
+        STORE_UPDATER["Store Updater"]
+        STORE_MAPPING["Active Store ID Mapping"]
 
-B --> S
-C --> S
-E --> S
-L --> S
-P --> S
-Q --> S
-X --> S
-Y --> S
+        MAIL_UPDATER["Mail Updater"]
+        PARTNER_MAPPING["Partner & User Mapping"]
+        EMAIL_RESOLUTION["Email Resolution"]
+        PARTNER_CSV["Updated Partner CSV"]
 
-S --> R
-T --> R
-R --> U
+    end
+
+    %% =========================
+    %% 4. REPORTING & INVENTORY
+    %% =========================
+
+    subgraph ANALYSIS["4. Reporting & Inventory Intelligence"]
+
+        DATA_PROCESSING["Integrated Data Processing<br/>Billing + Stock + GRN + RTV"]
+
+        KPI["KPI Computation"]
+        TRENDS["Trend Detection"]
+        RISK["Risk Scoring"]
+        ML["Predictive ML Pipeline"]
+
+        INVENTORY_ANALYSIS["Inventory Analysis"]
+        LOW_STOCK["Low Stock Detection"]
+        DEAD_INVENTORY["Dead Inventory Detection"]
+
+        INSIGHTS["Structured Insights"]
+        INVENTORY_ALERTS["Inventory Notifications"]
+
+    end
+
+    %% =========================
+    %% 5. LLM ENGINE
+    %% =========================
+
+    subgraph LLM["5. LLM Recommendation Engine"]
+
+        GROQ["Groq LLaMA 3.1<br/>Primary"]
+        OLLAMA["Ollama<br/>Fallback"]
+
+        RECOMMENDATIONS["Operational Recommendations"]
+
+    end
+
+    %% =========================
+    %% 6. REPORT GENERATION
+    %% =========================
+
+    subgraph REPORTING["6. Automated Report Generation"]
+
+        GENERATOR["Report Generator"]
+
+        DAILY["Daily Report"]
+        WEEKLY["Weekly Report"]
+        MONTHLY["Monthly Report"]
+
+    end
+
+    %% =========================
+    %% 7. DISTRIBUTION
+    %% =========================
+
+    subgraph DELIVERY["7. Report & Alert Distribution"]
+
+        EMAIL["Email Delivery"]
+        WHATSAPP["WhatsApp Automation"]
+
+    end
+
+    %% =========================
+    %% 8. OBSERVABILITY
+    %% =========================
+
+    subgraph MONITORING["8. Observability"]
+
+        METRICS["Application Metrics"]
+        PROMETHEUS["Prometheus"]
+        GRAFANA["Grafana"]
+
+    end
+
+    %% =========================
+    %% DATA INGESTION FLOW
+    %% =========================
+
+    BILLING_API --> AIRFLOW
+    STOCK_API --> AIRFLOW
+    GRN_API --> AIRFLOW
+    RTV_API --> AIRFLOW
+
+    AIRFLOW --> ETL
+
+    ETL --> BRONZE
+    BRONZE --> SILVER
+    SILVER --> GOLD
+
+    GOLD --> POSTGRES
+
+    %% =========================
+    %% INTEGRATED PROCESSING
+    %% =========================
+
+    BRONZE --> DATA_PROCESSING
+    SILVER --> DATA_PROCESSING
+    GOLD --> DATA_PROCESSING
+
+    DATA_PROCESSING --> KPI
+    DATA_PROCESSING --> INVENTORY_ANALYSIS
+
+    %% =========================
+    %% ANALYTICS & PREDICTIVE ML
+    %% =========================
+
+    KPI --> TRENDS
+    TRENDS --> RISK
+    RISK --> INSIGHTS
+
+    DATA_PROCESSING --> ML
+    ML --> INSIGHTS
+
+    %% =========================
+    %% INVENTORY ANALYSIS
+    %% =========================
+
+    INVENTORY_ANALYSIS --> LOW_STOCK
+    INVENTORY_ANALYSIS --> DEAD_INVENTORY
+
+    LOW_STOCK --> INVENTORY_ALERTS
+    DEAD_INVENTORY --> INVENTORY_ALERTS
+
+    %% =========================
+    %% LLM FLOW
+    %% =========================
+
+    INSIGHTS --> GROQ
+    INSIGHTS --> OLLAMA
+
+    GROQ --> RECOMMENDATIONS
+    OLLAMA --> RECOMMENDATIONS
+
+    %% =========================
+    %% REPORT GENERATION
+    %% =========================
+
+    RECOMMENDATIONS --> GENERATOR
+    DATA_PROCESSING --> GENERATOR
+
+    GENERATOR --> DAILY
+    GENERATOR --> WEEKLY
+    GENERATOR --> MONTHLY
+
+    %% =========================
+    %% REPORT DISTRIBUTION
+    %% =========================
+
+    DAILY --> WHATSAPP
+    DAILY --> EMAIL
+
+    WEEKLY --> WHATSAPP
+    WEEKLY --> EMAIL
+
+    MONTHLY --> WHATSAPP
+    MONTHLY --> EMAIL
+
+    %% =========================
+    %% INVENTORY ALERT DISTRIBUTION
+    %% =========================
+
+    INVENTORY_ALERTS --> WHATSAPP
+    INVENTORY_ALERTS --> EMAIL
+
+    %% =========================
+    %% STORE UPDATER
+    %% =========================
+
+    STORE_API --> STORE_UPDATER
+    STORE_UPDATER --> STORE_MAPPING
+
+    STORE_MAPPING --> STOCK_API
+
+    %% =========================
+    %% MAIL UPDATER
+    %% =========================
+
+    STORE_API --> MAIL_UPDATER
+    USERS_API --> MAIL_UPDATER
+
+    MAIL_UPDATER --> PARTNER_MAPPING
+    PARTNER_MAPPING --> EMAIL_RESOLUTION
+    EMAIL_RESOLUTION --> PARTNER_CSV
+
+    PARTNER_CSV --> EMAIL
+
+    %% =========================
+    %% OBSERVABILITY
+    %% =========================
+
+    AIRFLOW --> METRICS
+    ETL --> METRICS
+    DATA_PROCESSING --> METRICS
+    STORE_UPDATER --> METRICS
+    MAIL_UPDATER --> METRICS
+    GENERATOR --> METRICS
+    EMAIL --> METRICS
+    WHATSAPP --> METRICS
+
+    METRICS --> PROMETHEUS
+    PROMETHEUS --> GRAFANA
 ```
 
 ### Layer Summary
 
 | Layer | Technology | Responsibility |
 |---|---|---|
-| Orchestration | Apache Airflow (Docker) | DAG scheduling, retries, dependency management, task isolation |
-| Data | PostgreSQL | Analytics storage, snapshot persistence |
-| ETL & Transform | PySpark (local / cluster) | Data ingestion, transformation, validation, bulk writes |
-| Intelligence | Python — PySpark + Pandas | KPI computation, trend detection, risk scoring |
+| Orchestration | Apache Airflow | DAG scheduling, retries, dependency management |
+| Data Lake | Azure Blob Storage | Bronze/Silver/Gold layers |
+| Serving | PostgreSQL | Low-latency query serving |
+| Intelligence | Python — DuckDB | KPI computation, trend detection, risk scoring, processing|
 | LLM | Groq + Ollama | Structured recommendation generation |
-| Reporting | PySpark + Python — pdfkit | PySpark aggregations, PDF report generation per store |
+| Reporting | Python — pdfkit | PDF report generation per store |
 | Distribution | SMTP + WhatsApp Business API | Email and WhatsApp delivery |
 | Inventory | REST API | Stock and RTV data ingestion |
 | Observability | Prometheus + Grafana | Metrics, dashboards, alerting |
+
+### Lakehouse & Serving Architecture
+
+| Layer       | Description                                      |
+| ----------- | ------------------------------------------------ |
+| **Bronze**  | Raw immutable ingestion layer (CSV)              |
+| **Silver**  | Cleaned, validated, partitioned Parquet datasets |
+| **Gold**    | Precomputed aggregated metrics for analytics     |
+| **Serving** | PostgreSQL for low-latency queries               |
+
+## Key Design Decisions:
+- Replayability — Bronze layer enables full pipeline reprocessing
+- Performance — Parquet + partitioning reduces query cost
+- Precomputation — Gold layer eliminates runtime aggregation
+- Separation of concerns — ingestion, processing, and serving are decoupled
 
 ---
 
@@ -176,24 +352,29 @@ flowchart TD
 
 The master DAG (`sales_master_pipeline`) runs at `00:25` daily and branches deterministically based on the day of week and day of month. Weekly and monthly tasks execute sequentially after the daily chain completes, ensuring consistent data state at every stage.
 
+## Execution Model
+- Heavy computation occurs in Silver/Gold layers (batch)
+- Reports and dashboards read precomputed Gold datasets
+- This enables near real-time reporting with minimal compute overhead
+
 ---
 
 ## Core Capabilities
 
 ### ETL & Data Engineering
 - API-driven daily ingestion from the retail mainframe
-- **PySpark-powered processing** — all transforms, aggregations, and bulk writes run on PySpark, enabling seamless scale-out to a distributed cluster without any code changes (see [PySpark & Distributed Computing](#pyspark--distributed-computing))
 - **Idempotent writes** — safe to re-run at any time without data duplication (see [Idempotency](#idempotency))
 - **Schema validation** — required columns, data types, null checks, and range rules enforced before any record enters the database (see [Data Quality & Schema Validation](#data-quality--schema-validation))
 - Time-window controlled processing with explicit scheduling boundaries
 - Critical validation failures halt the pipeline; non-critical anomalies are logged and surfaced in Grafana
 
-### Intelligence Engine
+### Computation Engine
 - Revenue, quantity, margin, and contribution KPIs per store, brand, category, and product
 - WoW (Week-over-Week) and MoM (Month-over-Month) trend comparisons via snapshot tables
 - Risk scoring: stockout risk, margin erosion, slow movers, concentration flags
 - Anomaly detection: negative margins, single-unit dead stock, GRN discrepancies
 - Predictive signals: rising stars, demand acceleration, margin decline trajectories
+
 
 ### Snapshot Memory
 Historical snapshots are persisted to PostgreSQL after each run, enabling trend comparisons across periods without re-querying raw transaction data.
@@ -213,7 +394,16 @@ The intelligence engine operates as a pure computation layer — no LLM involvem
 - Mix-shift risk (high revenue share, below-average margin)
 - Predictive signals: stockout risk, margin erosion, rising stars
 
-This deterministic approach ensures LLM recommendations are grounded in actual numbers — the model cannot invent data it was not given.
+
+## Agent-Ready Architecture (Vectorless AI)
+
+#### The system supports vectorless agent-based querying over structured data:
+
+- No embeddings required
+- Uses SQL / structured queries over Gold layer
+- Ensures deterministic, hallucination-free responses
+- Enables natural language analytics over business metrics
+- This deterministic approach ensures LLM recommendations are grounded in actual numbers — the model cannot invent data it was not given.
 
 ---
 
@@ -254,7 +444,7 @@ The LLM layer is a **rendering layer, not a decision engine**. It receives pre-c
 - Growth percentage with conditional formatting
 
 ### Weekly Report
-- WoW revenue, quantity, and margin comparison — aggregations powered by PySpark
+- WoW revenue, quantity, and margin comparison
 - Risk scoring and anomaly detection per store
 - LLM-generated action recommendations (brand, category, product)
 - Current stock column injected from live stock CSV
@@ -262,9 +452,15 @@ The LLM layer is a **rendering layer, not a decision engine**. It receives pre-c
 - RTV (Return to Vendor) summary if applicable
 
 ### Monthly Report
-- MoM consolidated performance — aggregations powered by PySpark
+- MoM consolidated performance
 - Trend-aware intelligence insights
 - Strategic performance summary
+
+### Performance Optimization
+- Reports are generated from precomputed Gold-layer datasets
+- Eliminates runtime joins and aggregations
+- Enables fast report generation at scale
+
 
 All reports are generated as PDF files using `pdfkit` / `wkhtmltopdf` and are stored per store in `/store_reports/`.
 
@@ -282,7 +478,7 @@ All reports are generated as PDF files using `pdfkit` / `wkhtmltopdf` and are st
 **Daily sales summary** (`wa_sender.py`)
 - Store-level daily performance summary sent via WhatsApp Business API to business partners
 
-**Weekly LLM summary** (`weekly_llm.py`)
+**Weekly LLM summary** (`weekly_azure_llm.py`)
 - After weekly report generation, LLM-generated insights are formatted as a WhatsApp message and sent directly to each store's business partner
 
 **Low stock & negative stock alerts** (`wa_stock_alert.py`)
@@ -374,89 +570,11 @@ Services after install:
 
 ---
 
-## PySpark & Distributed Computing
-
-The ETL pipeline (`etl_pip.py`) and aggregation layer (`agg_insert.py`) are fully built on PySpark, replacing the previous Pandas-based processing. The architecture is designed so that switching from a single VM to a distributed cluster requires changing only a configuration value — no code changes anywhere in the pipeline.
-
-### What Runs on PySpark
-
-**ETL Pipeline (`etl_pip.py` + `agg_insert.py`)**
-- **Schema validation** — column presence checks, row-level filter rules, and empty DataFrame guards all run as Spark DataFrame operations
-- **Transform** — all type casting, date parsing (multi-format), string cleaning, and column selection run as distributed Spark transformations
-- **Aggregations** — all 4 aggregate tables (brand, store, category, product) computed via `groupBy().agg()` using `countDistinct`, `sum`, and `round`
-- **Database writes** — all inserts to PostgreSQL use Spark JDBC, replacing `psycopg2.extras.execute_values`
-- **Idempotency deletes** — still handled via `psycopg2` before the Spark write, inside the same transaction boundary
-
-**Weekly Report (`weekly_reports.py`)**
-- **Data fetch** — store's 7-day window loaded from PostgreSQL via Spark JDBC subquery pushdown; only relevant rows transferred
-- **Comparison computation** — current week vs previous 2-week average computed in Spark using exact week boundary logic (exclusive lower bound, inclusive upper bound matching original SQL)
-- **Brand, category, product aggregations** — `groupBy().agg()` with `sum`, `round`, `coalesce`; per-row profit margin computed before `avg()`
-- **Total financials** — total sales, cost, profit, and average profit margin all computed in Spark
-- **Stock injection, LLM calls, RTV insights, charts, PDF** — remain in Pandas/Python (operate on local CSVs and rendered output, no Spark benefit)
-
-**Monthly Report (`monthly_reports.py`)**
-- **Data fetch** — store's full calendar month loaded from PostgreSQL via Spark JDBC subquery pushdown
-- **Comparison computation** — current month vs previous 3-month average computed in Spark; always divides by 3.0 matching original SQL exactly
-- **Brand, category, product aggregations** — `groupBy().agg()` with contribution % and profit margin; cached DataFrame reused across all 3 aggregations
-- **Total financials** — total sales, cost, profit, and average profit margin all computed in Spark
-- **LLM calls, charts, PDF** — remain in Pandas/Python
-
-### Two Modes — Switch with One Line
-
-Both files contain two clearly labelled `get_spark()` implementations. Only one is active at a time:
-
-```
-# MODE 1 — SINGLE NODE  ✅ ACTIVE (default)
-.master("local[*]")       # uses all CPU cores on this VM
-
-# MODE 2 — DISTRIBUTED  💤 COMMENTED OUT
-.master(require_env("SPARK_MASTER_URL"))   # points to cluster
-```
-
-The same pattern applies to the JDBC write blocks — `numPartitions=1` for single node, parallel partitioned writes for distributed.
-
-### How to Switch to Distributed
-
-**Step 1** — In `etl_pip.py`, `agg_insert.py`, `weekly_reports.py`, and `monthly_reports.py`, comment out the MODE 1 `get_spark()` block and uncomment MODE 2.
-
-**Step 2** — In `etl_pip.py` and `agg_insert.py`, comment out the MODE 1 JDBC write block inside `load_to_postgres_bulk()` / `write_to_postgres()` and uncomment MODE 2.
-
-**Step 3** — Add these variables to your `.env` file:
-
-```env
-SPARK_MASTER_URL=spark://your-cluster-ip:7077
-SPARK_EXECUTOR_MEMORY=4g
-SPARK_EXECUTOR_CORES=2
-SPARK_NUM_EXECUTORS=4
-```
-
-That is the complete switch. All business logic, idempotency, schema validation, Ho Marlboro exclusion, stock injection, LLM calls, and credential handling remain identical in both modes.
-
-### Why PySpark and Not Pandas
-
-- **Pandas loads everything into RAM** — crashes when data exceeds available memory on a single machine
-- **Pandas is single-threaded** — one CPU core regardless of VM size
-- **PySpark handles out-of-memory automatically** — spills to disk and continues
-- **PySpark is cluster-ready** — when data grows beyond single-VM capacity, the same code runs distributed across nodes by changing one config line
-- **No rewrite needed to scale** — the investment in PySpark now means zero migration cost later
-
-### Supported Cluster Targets
-
-| Platform | `SPARK_MASTER_URL` value |
-|---|---|
-| Spark Standalone | `spark://host:7077` |
-| YARN (Hadoop) | `yarn` |
-| Databricks | Set via cluster config |
-| AWS EMR | `yarn` or `local[*]` on driver |
-| GCP Dataproc | `yarn` |
-
----
-
 ## Data Quality & Schema Validation
 
 Validation is enforced in two layers at ETL ingestion — **before transform** and **before aggregation** — ensuring no bad data ever enters the analytics database.
 
-### Layer 1 — CSV Schema Validation (`etl_pip.py`)
+### Layer 1 — CSV Schema Validation (`core_pipeline.py`)
 
 Runs immediately after download, before any transformation begins.
 
@@ -466,7 +584,7 @@ Runs immediately after download, before any transformation begins.
 - **Blank identifier check** — Rows missing the primary order identifier are dropped — records without a traceable key have no analytical value and can corrupt aggregations.
 - **Empty DataFrame guard** — If all rows are dropped during validation the pipeline halts with a clear message before any database connection is opened. Nothing is written if nothing is valid.
 
-### Layer 2 — Aggregate Input Validation (`agg_insert.py`)
+### Layer 2 — Aggregate Input Validation (`aggregate.py`)
 
 Runs at the start of aggregate processing, before any DB connection is opened.
 
@@ -498,151 +616,7 @@ Runs at the start of aggregate processing, before any DB connection is opened.
 
 ---
 
-## Airflow Orchestration
-
-The entire pipeline is orchestrated by **Apache Airflow running in Docker** via the official `docker-compose` setup. Airflow handles scheduling, task dependency management, automatic retries, and execution history — the pipeline runs fully unattended after deployment.
-
-### Why Docker
-
-Running Airflow in Docker isolates it from the host Python environment and system dependencies. The ETL scripts, report generators, and alert senders run in their own process space, preventing dependency conflicts and making the setup reproducible across environments.
-
-### DAG Structure
-
-```
-airflow/
-├── docker-compose.yaml       # Official Airflow Docker Compose (with Postgres + Redis)
-├── .env                      # Airflow-specific env overrides (AIRFLOW_UID etc.)
-└── dags/
-    └── auto_execute.py       # Master DAG — full pipeline definition
-```
-
-The master DAG (`sales_master_pipeline`) is defined in `auto_execute.py` and contains all task dependencies, branching logic, and retry configuration.
-
-### Schedule
-
-The DAG runs at **00:25 daily** — after midnight to ensure the previous day's data is complete before ingestion begins.
-
-```python
-schedule_interval = "25 0 * * *"   # 00:25 every day
-```
-
-### Task Chain
-
-```
-etl_pip          → product_update → daily_analysis
-daily_analysis   → llm_layer      → wa_daily_summary
-wa_daily_summary → [weekly branch if Monday]
-wa_daily_summary → [monthly branch if 1st of month]
-```
-
-**Weekly branch (Mondays only):**
-```
-weekly_reports → weekly_llm → wa_weekly_summary → email_weekly
-```
-
-**Monthly branch (1st of month only):**
-```
-monthly_reports → email_monthly
-```
-
-All branching is deterministic — decided at DAG runtime based on `execution_date`.
-
-### Retry Configuration
-
-Each task is configured with automatic retries to handle transient failures:
-
-```python
-default_args = {
-    "retries": 3,
-    "retry_delay": timedelta(minutes=5),
-    "retry_exponential_backoff": True,
-    "max_retry_delay": timedelta(minutes=30),
-}
-```
-
-A failing task retries up to 3 times with exponential backoff before marking as failed and triggering a Grafana alert.
-
-### Task Isolation
-
-Each pipeline script (`etl_pip.py`, `weekly_reports.py`, `monthly_reports.py`, etc.) is called as a separate `BashOperator` or `PythonOperator` task. This means:
-- A failure in report generation does not prevent the next day's ETL from running
-- Each task has its own execution log visible in the Airflow UI
-- Tasks can be manually re-triggered individually from the UI without re-running the full pipeline
-
-### Airflow UI
-
-After startup, the Airflow web interface is available at `http://localhost:8080`.
-
-The UI provides:
-- Full DAG run history with per-task success/failure status
-- Task logs — stdout and stderr for every execution
-- Manual trigger — re-run any individual task or the full DAG
-- Pause/unpause — disable the schedule without stopping Docker
-- Graph view — visual representation of the full task dependency chain
-
-### Docker Services
-
-The `docker-compose.yaml` spins up the following containers:
-
-| Container | Role |
-|---|---|
-| `airflow-webserver` | Airflow UI on port 8080 |
-| `airflow-scheduler` | DAG scheduler and task trigger |
-| `airflow-worker` | Task execution (CeleryExecutor) |
-| `airflow-postgres` | Airflow metadata database |
-| `airflow-redis` | Celery message broker |
-
-### Starting Airflow
-
-```bash
-cd airflow
-
-# First-time initialisation — creates DB schema, default admin user
-docker compose up airflow-init
-
-# Start all services in background
-docker compose up -d
-
-# Check all containers are healthy
-docker compose ps
-
-# View scheduler logs
-docker compose logs -f airflow-scheduler
-
-# Stop all services
-docker compose down
-```
-
-### Accessing the UI
-
-```
-URL      : http://localhost:8080
-Username : airflow
-Password : airflow
-```
-
-Change the default password after first login via **Admin → Users**.
-
-### Connecting Airflow to the Pipeline
-
-The DAG runs scripts from the host filesystem via volume mounts defined in `docker-compose.yaml`. The pipeline `.env` file is passed into the Airflow containers as environment variables so all scripts have access to DB credentials, API keys, and configuration at runtime.
-
-```yaml
-# In docker-compose.yaml — volume mount for pipeline scripts
-volumes:
-  - /home/azureuser/etl:/opt/airflow/etl
-  - /home/azureuser/etl/.env:/opt/airflow/.env
-```
-
----
-
 ## Installation & Setup
-
-### Clone
-```bash
-git clone https://github.com/SominZex/sales_analysis_algorithm.git
-cd sales_analysis_algorithm
-```
 
 ### Python Environment
 ```bash
@@ -683,42 +657,20 @@ LOW_STOCK_THRESHOLD=5
 
 # Observability
 PUSHGATEWAY_URL=http://localhost:9091
-
-# PySpark — Distributed Mode (leave blank for single-node local mode)
-# Uncomment MODE 2 in etl_pip.py and agg_insert.py before using these
-SPARK_MASTER_URL=
-SPARK_EXECUTOR_MEMORY=4g
-SPARK_EXECUTOR_CORES=2
-SPARK_NUM_EXECUTORS=4
 ```
-
-> **Note:** Never commit `.env` to version control. Add it to `.gitignore`.
 
 ### Airflow (Docker)
-
-See [Airflow Orchestration](#airflow-orchestration) for the full setup, DAG structure, retry configuration, and UI guide.
-
 ```bash
 cd airflow
-
-# First-time setup
 docker compose up airflow-init
-
-# Start all services
 docker compose up -d
-
-# Verify all containers are running
-docker compose ps
 ```
-
-Airflow UI: `http://localhost:8080` (default credentials: `airflow` / `airflow`)
+Airflow UI: `http://localhost:8080`
 
 ```
 airflow/
-├── docker-compose.yaml
-├── .env
 └── dags/
-    └── auto_execute.py       # Master DAG — full pipeline definition
+    └── auto_execute.py
 ```
 
 ### Monitoring (bare VM)
@@ -730,9 +682,11 @@ chmod +x install_monitoring.sh
 Installs Prometheus, Pushgateway, Node Exporter, and Grafana as systemd services. Prometheus TSDB data is stored on `/mnt` to preserve root partition space.
 
 ### DAG Workflow
-![DAG](https://github.com/user-attachments/assets/1f1d2b17-9f75-4413-9dfb-3ce48698807b)
+<img width="1486" height="627" alt="pipeline_dag" src="/home/azureuser/azure_analysis_algorithm/pipeline_dag.png" />
+
 
 ---
+
 ## Design Principles
 
 **Deterministic analytics over heuristic outputs** — KPIs and risk signals are computed with explicit logic. The LLM never calculates; it only renders pre-computed facts into natural language.
@@ -748,9 +702,5 @@ Installs Prometheus, Pushgateway, Node Exporter, and Grafana as systemd services
 **Fault isolation** — Each pipeline layer is independently executable. A failure in distribution does not affect data integrity. A failure in monitoring does not affect pipeline execution.
 
 **Minimal operational dependency** — The system runs unattended. No human action is required between deployment and report delivery.
-
-**Scale-ready by design** — The ETL layer runs on PySpark in local mode today and on a distributed cluster tomorrow. Switching requires one config line change — no rewrite, no migration, no logic changes anywhere in the pipeline.
-
-**Orchestration as infrastructure** — Airflow runs in Docker, isolated from the host environment. Every pipeline task is independently retryable, independently loggable, and independently triggerable from the UI — without touching the underlying scripts.
 
 **Credential hygiene** — No credentials are hardcoded. All secrets are loaded from `.env` at runtime with explicit validation on startup.
